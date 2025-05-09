@@ -1,6 +1,12 @@
 import graphene
 from neo4j_driver import Neo4jDriver  # make sure this is accessible
 
+
+class Repository(graphene.ObjectType):
+    name = graphene.String()
+    description = graphene.String()
+    url = graphene.String()
+
 class Commit(graphene.ObjectType):
     commit_hash = graphene.String()
     message = graphene.String()
@@ -49,6 +55,22 @@ class Query(graphene.ObjectType):
                 ) for commit in data["committed_commits"]
             ]
         )
+    repository = graphene.Field(Repository, name=graphene.String(required=True))
 
+    def resolve_repository(self, info, name):
+        repositories = {
+            "bitcoin": {
+                "name": "bitcoin",
+                "description": "Bitcoin Core reference implementation",
+                "url": "https://github.com/bitcoin/bitcoin.git"
+            },
+            "bitcoinknots": {
+                "name": "bitcoinknots",
+                "description": "Bitcoin Knots – a Bitcoin Core derivative",
+                "url": "https://github.com/bitcoinknots/bitcoin.git"
+            }
+        }
+        key = name.lower()
+        return repositories.get(key)
 
 schema = graphene.Schema(query=Query)
