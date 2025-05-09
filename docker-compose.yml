@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: appdb
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - appnet
+  neo4j:
+    image: neo4j:latest
+    ports:
+      - "7474:7474"  # HTTP interface
+      - "7687:7687"  # Bolt protocol
+    environment:
+      - NEO4J_AUTH=neo4j/password  # Set initial username/password
+    volumes:
+      - ./data/neo4j:/data  # Persist data in project folder
+    restart: unless-stopped
+    networks:
+      - appnet
+
+  repex:
+    build: ./repex
+    restart: unless-stopped
+    depends_on:
+      - neo4j
+    networks:
+      - appnet
+
+
+  frontend:
+    build: ./CE_demo
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - repex
+    networks:
+      - appnet
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - neo4j
+      - repex
+      - frontend
+    networks:
+      - appnet
+
+volumes:
+  pgdata:
+
+networks:
+  appnet:
