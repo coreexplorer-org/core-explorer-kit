@@ -10,7 +10,8 @@ RUN apk add --no-cache \
     linux-headers \
     pcre-dev \
     libpq \
-    postgresql-dev
+    postgresql-dev \
+    git 
 
 # Set environment for Pipenv
 ENV LANG=C.UTF-8
@@ -21,7 +22,7 @@ ENV PATH="/root/.local/bin:$PATH"
 WORKDIR /app
 
 # Install pipenv
-RUN pip install pipenv flask flask_graphql graphene
+RUN pip install pipenv flask flask_graphql graphene neo4j GitPython
 
 
 # Copy app source
