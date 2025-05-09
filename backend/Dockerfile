@@ -22,7 +22,7 @@ ENV PATH="/root/.local/bin:$PATH"
 WORKDIR /app
 
 # Install pipenv
-RUN pip install pipenv flask flask_graphql graphene neo4j GitPython
+RUN pip install pipenv flask flask_graphql graphene neo4j GitPython git-fame
 
 
 # Copy app source

@@ -22,6 +22,8 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    volumes:
+      - ./data/user_supplied_repo:/app/bitcoin 
     depends_on:
       neo4j:
         condition: service_healthy
