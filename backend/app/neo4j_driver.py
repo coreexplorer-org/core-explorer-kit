@@ -94,6 +94,61 @@ class Neo4jDriver:
             return [record.data() for record in result]
 
 
+    def get_actor_with_commits(self, email: str):
+        with self.driver.session() as session:
+            query = """
+                MATCH (a:Actor {email: $email})
+                OPTIONAL MATCH (a)-[:AUTHORED]->(authored:Commit)
+                OPTIONAL MATCH (a)-[:COMMITTED]->(committed:Commit)
+                RETURN 
+                    a.name AS name,
+                    a.email AS email,
+                    collect(DISTINCT {commit_hash: authored.commit_hash, message: authored.message}) AS authored_commits,
+                    collect(DISTINCT {commit_hash: committed.commit_hash, message: committed.message}) AS committed_commits
+            """
+            result = session.run(query, email=email)
+            record = result.single()
+            if not record:
+                return None
+            return {
+                "name": record["name"],
+                "email": record["email"],
+                "authored_commits": record["authored_commits"],
+                "committed_commits": record["committed_commits"]
+            }
+
+
+    def get_mismatched_authors_committers(self):
+        with self.driver.session() as session:
+            query = """
+            MATCH (c:Commit)
+            MATCH (c)<-[rel_c:COMMITTED]-(committer:Actor) 
+            MATCH (c)<-[rel_a:AUTHORED]-(author:Actor) 
+            WHERE committer.email <> author.email
+            AND rel_c.committed_date > 1542067894
+            RETURN 
+                c.commit_hash AS commit_hex, 
+                author.email AS author_email, 
+                committer.email AS committer_email, 
+                c AS commit, 
+                rel_c.committed_date AS committed_date, 
+                rel_a.authored_date AS authored_date 
+            LIMIT 10
+            """
+            result = session.run(query)
+            return [
+                {
+                    "commit_hex": r["commit_hex"],
+                    "author_email": r["author_email"],
+                    "committer_email": r["committer_email"],
+                    "commit": r["commit"],
+                    "committed_date": r["committed_date"],
+                    "authored_date": r["authored_date"]
+                }
+                for r in result
+            ]
+
+
 if __name__ == "__main__":
     db = Neo4jDriver()
     # db.clear_database() # TODO make it clear again
