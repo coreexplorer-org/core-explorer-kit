@@ -21,16 +21,12 @@ ENV PATH="/root/.local/bin:$PATH"
 WORKDIR /app
 
 # Install pipenv
-RUN pip install pipenv
+RUN pip install pipenv flask flask_graphql graphene
 
-# Copy and install dependencies
-COPY Pipfile ./
-RUN pipenv install --deploy
 
 # Copy app source
 COPY app .
 
-
 EXPOSE 5000
 
-CMD ["uwsgi", "--ini", "/app/wsgi.ini"]
+CMD ["python", "app.py"]

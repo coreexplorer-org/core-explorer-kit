@@ -19,7 +19,17 @@ services:
       retries: 20
       start_period: 30s
 
-
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    networks:
+      - appnet
+    ports:
+      - "5000:5000"
+      
   repex:
     build: ../repex
     restart: unless-stopped
@@ -34,8 +44,8 @@ services:
   frontend:
     build: ../CE_demo
     restart: unless-stopped
-    ports:
-      - "3001:3001"
+    expose:
+      - "3000"
     depends_on:
       - repex
     networks:
