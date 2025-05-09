@@ -1,15 +1,15 @@
 services:
-  postgres:
-    image: postgres:15
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: appdb
-      POSTGRES_USER: appuser
-      POSTGRES_PASSWORD: secret
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    networks:
-      - appnet
+  # postgres:
+  #   image: postgres:15
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: appdb
+  #     POSTGRES_USER: appuser
+  #     POSTGRES_PASSWORD: secret
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #   networks:
+  #     - appnet
   neo4j:
     image: neo4j:latest
     ports:
@@ -26,6 +26,8 @@ services:
   repex:
     build: ./repex
     restart: unless-stopped
+    volumes:
+      - ./data/user_supplied_repo:/app/bitcoin  # Persist data in project folder
     depends_on:
       - neo4j
     networks:
@@ -36,7 +38,7 @@ services:
     build: ./CE_demo
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3001:3001"
     depends_on:
       - repex
     networks:
@@ -56,8 +58,8 @@ services:
     networks:
       - appnet
 
-volumes:
-  pgdata:
+# volumes:
+#   pgdata:
 
 networks:
   appnet:
