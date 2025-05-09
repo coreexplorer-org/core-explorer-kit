@@ -6,6 +6,7 @@ Navigate one directory up from your current location
 This ensures you're outside of core kit repo folder:
 
 ```bash
+mkdir data
 cd data/
 git clone https://github.com/bitcoin/bitcoin.git user_supplied_repo
 cd ..
