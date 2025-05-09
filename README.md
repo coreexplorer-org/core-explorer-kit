@@ -1,24 +1,25 @@
-# core-explorer-kit
+#🧰 SETUP INSTRUCTIONS FOR CORE KIT
+To get started, clone the necessary repositories in the parent directory.
 
+##📦 Step-by-step
+Navigate one directory up from your current location
+This ensures you're outside of core kit repo folder:
 
-## step one
+```bash
+cd data/
+git clone https://github.com/bitcoin/bitcoin.git user_supplied_repo
+cd ..
+# we are now back at the root
+cd ..
+# Clone the required repositories in parent folder
+git clone https://github.com/coreexplorer-org/repo_explorer.git
+git clone https://github.com/coreexplorer-org/repex.git
+git clone https://github.com/coreexplorer-org/CE_demo.git
+```
 
-git clone bitcoin repo. copy that to /data/user_supplied_repo/ directory
+### Run the full environment with Docker Compose
+From inside core-explorer-kit (here), run:
 
-
-
-
-## running the first time
-
-`chmod +x init/init.sh && cd init && ./init.sh`
-
-## running for the 2nd time
-
-`docker compose up`
-
-## TODO:
-
-fix init file:
-- difference between `docker-compose` & `docker compose` commands on windows v. osx/linux(?)
-- only runs once.
-
+```bash
+docker compose up
+```

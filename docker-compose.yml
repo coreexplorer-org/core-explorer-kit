@@ -1,15 +1,5 @@
 services:
-  # postgres:
-  #   image: postgres:15
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_DB: appdb
-  #     POSTGRES_USER: appuser
-  #     POSTGRES_PASSWORD: secret
-  #   volumes:
-  #     - pgdata:/var/lib/postgresql/data
-  #   networks:
-  #     - appnet
+
   neo4j:
     image: neo4j:latest
     ports:
@@ -22,20 +12,27 @@ services:
     restart: unless-stopped
     networks:
       - appnet
+    healthcheck:
+      test: wget http://localhost:7474 -O /dev/null || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
 
   repex:
-    build: ./repex
+    build: ../repex
     restart: unless-stopped
     volumes:
       - ./data/user_supplied_repo:/app/bitcoin  # Persist data in project folder
     depends_on:
-      - neo4j
+      neo4j:
+        condition: service_healthy
     networks:
       - appnet
 
-
   frontend:
-    build: ./CE_demo
+    build: ../CE_demo
     restart: unless-stopped
     ports:
       - "3001:3001"
@@ -57,9 +54,6 @@ services:
       - frontend
     networks:
       - appnet
-
-# volumes:
-#   pgdata:
 
 networks:
   appnet:
