@@ -1,10 +1,15 @@
 # src/neo4j_driver.py
+from typing import Optional
 from neo4j import GraphDatabase, Record
 import config
 import time
 import json
 from git import Repo, Commit, Actor
+import uuid
 
+def uuid4():
+    """Generate a random UUID."""
+    return uuid.uuid4().hex
 
 class Neo4jDriver:
     def __init__(self, max_retries=5, retry_delay=2):
@@ -148,16 +153,19 @@ class Neo4jDriver:
                 for r in result
                 ]
 
-    def merge_organization(self, name: str, slug: str):
+    def merge_organization(self, name: str, slug: str, org_id: Optional[str] = None):
+        if uuid_id is None:
+            org_id = uuid.uuid4().hex 
         with self.driver.session() as session:
             result = session.run(
                 """
                 MERGE (o:GithubOrganization {slug: $slug})
-                ON CREATE SET o.name = $name
+                ON CREATE SET o.name = $name, o.uuid = $org_id
                 RETURN o
                 """,
                 slug=slug,
-                name=name
+                name=name,
+                org_id=org_id
             )
             return result.single()["o"]
 
