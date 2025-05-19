@@ -154,7 +154,7 @@ class Neo4jDriver:
                 ]
 
     def merge_organization(self, name: str, slug: str, org_id: Optional[str] = None):
-        if uuid_id is None:
+        if org_id is None:
             org_id = uuid.uuid4().hex 
         with self.driver.session() as session:
             result = session.run(
