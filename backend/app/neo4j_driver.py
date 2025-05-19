@@ -148,8 +148,7 @@ class Neo4jDriver:
                 for r in result
                 ]
 
-    def merge_organization(self, name: str, slug: str = None):
-        slug = slug or name.lower().replace(" ", "-")
+    def merge_organization(self, name: str, slug: str):
         with self.driver.session() as session:
             result = session.run(
                 """
