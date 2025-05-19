@@ -169,7 +169,7 @@ class Neo4jDriver:
                 MATCH (org:Organization {slug: $org_slug})
                 MERGE (r:Repository {url: $url})
                 ON CREATE SET r.name = $name, r.description = $description
-                MERGE (org)-[:HAS_REPO]->(r)
+                MERGE (org)-[:HAS_REPOSITORY]->(r)
                 RETURN r
                 """,
                 org_slug=org_slug,
@@ -186,8 +186,9 @@ class Neo4jDriver:
                 MATCH (r:Repository {url: $repo_url})
                 MERGE (s:Source {kind: 'GIT', url: $repo_url})
                 CREATE (j:Job {run_id: $run_id, created_at: datetime()})
-                MERGE (j)-[:IMPORTS]->(r)
-                MERGE (j)-[:IMPORTS]->(s)
+                MERGE (j)<-[ib:IMPORTED_BY]-(r)
+                MERGE (j)-[:IMPORTS_SOURCE]->(s)
+                ON CREATE SET ib.import_job_scheduled = datetime()
                 RETURN j
                 """,
                 repo_url=repo_url,
@@ -220,8 +221,8 @@ class Neo4jDriver:
             result = session.run(
                 """
                 MATCH (r:Repository {url: $url})
-                MERGE (l:Label {name: $label})
-                MERGE (r)-[:HAS_LABEL]->(l)
+                MERGE (l:GitLabel {name: $label})
+                MERGE (r)-[:HAS_GIT_LABEL]->(l)
                 RETURN l
                 """,
                 url=repo_url,
@@ -287,7 +288,7 @@ class Neo4jDriver:
                 """
                 MATCH (s:Source {kind: $kind})
                 CREATE (j:Job {run_id: $run_id, created_at: datetime()})
-                MERGE (j)-[:IMPORTS]->(s)
+                MERGE (j)-[:IMPORTS_SOURCE]->(s)
                 RETURN j
                 """,
                 kind=kind,
@@ -312,7 +313,7 @@ class Neo4jDriver:
             result = session.run(
                 """
                 MATCH (j:Job {run_id: $run_id})
-                SET j.ended_at = datetime()
+                SET j.completed_at = datetime()
                 RETURN j
                 """,
                 run_id=run_id
@@ -323,7 +324,7 @@ class Neo4jDriver:
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (j:Job)-[:IMPORTS]->(s:Source)
+                MATCH (j:Job)-[:IMPORTS_SOURCE]->(s:Source)
                 WHERE NOT EXISTS(j.started_at)
                 RETURN j.run_id AS run_id, s.kind AS kind, s.url AS url
                 """
