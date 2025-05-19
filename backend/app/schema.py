@@ -109,8 +109,8 @@ class Query(graphene.ObjectType):
             ]
         )
     
-    organization = graphene.Field(GithubOrganization, slug=graphene.String(required=True))
-    def resolve_organization(self, info, slug):
+    github_organization = graphene.Field(GithubOrganization, slug=graphene.String(required=True))
+    def resolve_github_organization(self, info, slug):
         db = Neo4jDriver()
         org = db.get_organization_by_slug(slug)
         db.close()

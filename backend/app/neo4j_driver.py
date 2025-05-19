@@ -173,7 +173,7 @@ class Neo4jDriver:
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (org:Organization {slug: $org_slug})
+                MATCH (org:GithubOrganization {slug: $org_slug})
                 MERGE (r:Repository {url: $url})
                 ON CREATE SET r.name = $name, r.description = $description
                 MERGE (org)-[:HAS_REPOSITORY]->(r)
@@ -196,11 +196,11 @@ class Neo4jDriver:
             )
             return [record.data() for record in result]
 
-    def get_all_organizations(self):
+    def get_all_github_organizations(self):
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (o:Organization)
+                MATCH (o:GithubOrganization)
                 RETURN o.name AS name, o.slug AS slug
                 """
             )
