@@ -181,7 +181,7 @@ class Neo4jDriver:
 
     def import_repository_job(self, repo_url: str, run_id: str):
         with self.driver.session() as session:
-            session.run(
+            result = session.run(
                 """
                 MATCH (r:Repository {url: $repo_url})
                 MERGE (s:Source {kind: 'GIT', url: $repo_url})
@@ -288,10 +288,12 @@ class Neo4jDriver:
                 MATCH (s:Source {kind: $kind})
                 CREATE (j:Job {run_id: $run_id, created_at: datetime()})
                 MERGE (j)-[:IMPORTS]->(s)
+                RETURN j
                 """,
                 kind=kind,
                 run_id=run_id
             )
+            return result.single()["j"]
 
     def start_job(self, run_id: str):
         with self.driver.session() as session:
@@ -303,6 +305,7 @@ class Neo4jDriver:
                 """,
                 run_id=run_id
             )
+            return result.single()["j"]
 
     def complete_job(self, run_id: str):
         with self.driver.session() as session:
@@ -314,6 +317,7 @@ class Neo4jDriver:
                 """,
                 run_id=run_id
             )
+            return result.single()["j"]
 
     def get_unstarted_jobs_and_sources(self):
         with self.driver.session() as session:

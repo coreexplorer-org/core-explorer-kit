@@ -33,6 +33,10 @@ class Repository(graphene.ObjectType):
     description = graphene.String()
     url = graphene.String()
 
+class Organization(graphene.ObjectType):
+    name = graphene.String()
+    slug = graphene.String()
+
 class Commit(graphene.ObjectType):
     commit_hash = graphene.String()
     message = graphene.String()
@@ -45,6 +49,27 @@ class Actor(graphene.ObjectType):
 
 
 class Query(graphene.ObjectType):
+
+    organizations = graphene.List(Organization, description="List all organizations")
+
+    
+    def resolve_organizations(self, info):
+        db = Neo4jDriver()
+        orgs = db.get_all_organizations()
+        db.close()
+        return [Organization(**org) for org in orgs]
+
+
+    repositories = graphene.List(Repository, description="List all repositories")
+
+
+    def resolve_repositories(self, info):
+        db = Neo4jDriver()
+        repos = db.get_all_repositories()
+        db.close()
+        return [Repository(**repo) for repo in repos]
+
+
     hello = graphene.String(description="A typical hello world")
 
     def resolve_hello(self, info):
@@ -81,23 +106,27 @@ class Query(graphene.ObjectType):
                 ) for commit in data["committed_commits"]
             ]
         )
-    repository = graphene.Field(Repository, name=graphene.String(required=True))
+    
+    organization = graphene.Field(Organization, slug=graphene.String(required=True))
+    def resolve_organization(self, info, slug):
+        db = Neo4jDriver()
+        org = db.get_organization_by_slug(slug)
+        db.close()
+        if not org:
+            return None
+        return Organization(name=org["name"], slug=org["slug"])
 
-    def resolve_repository(self, info, name):
-        repositories = {
-            "bitcoin": {
-                "name": "bitcoin",
-                "description": "Bitcoin Core reference implementation",
-                "url": "https://github.com/bitcoin/bitcoin.git"
-            },
-            "bitcoinknots": {
-                "name": "bitcoinknots",
-                "description": "Bitcoin Knots – a Bitcoin Core derivative",
-                "url": "https://github.com/bitcoinknots/bitcoin.git"
-            }
-        }
-        key = name.lower()
-        return repositories.get(key)
+
+    repository = graphene.Field(Repository, url=graphene.String(required=True))
+
+    def resolve_repository(self, info, url):
+        db = Neo4jDriver()
+        repo = db.get_repository_by_url(url)
+        db.close()
+        if not repo:
+            return None
+        return Repository(name=repo["name"], url=repo["url"], description=repo.get("description", ""))
+
 
     fame = graphene.Field(
         FameTotal,
@@ -184,3 +213,4 @@ class Mutation(graphene.ObjectType):
     create_job = CreateJob.Field()
 
 schema = graphene.Schema(query=Query, mutation=Mutation)
+ma = graphene.Schema(query=Query)
