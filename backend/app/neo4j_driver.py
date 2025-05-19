@@ -153,19 +153,16 @@ class Neo4jDriver:
                 for r in result
                 ]
 
-    def merge_github_organization(self, name: str, slug: str, org_id: Optional[str] = None):
-        if org_id is None:
-            org_id = uuid.uuid4().hex 
+    def merge_github_organization(self, name: str, slug: str):
         with self.driver.session() as session:
             result = session.run(
                 """
                 MERGE (o:GithubOrganization {slug: $slug})
-                ON CREATE SET o.name = $name, o.uuid = $org_id
+                ON CREATE SET o.name = $name
                 RETURN o
                 """,
                 slug=slug,
-                name=name,
-                org_id=org_id
+                name=name
             )
             return result.single()["o"]
 

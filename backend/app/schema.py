@@ -172,13 +172,13 @@ class CreateGithubOrganization(graphene.Mutation):
         name = graphene.String(required=True)
         slug = graphene.String(required=True)
 
-    organization = graphene.Field(GithubOrganization)
+    github_organization = graphene.Field(GithubOrganization)
 
     def mutate(self, info, name, slug):
         db = Neo4jDriver()
         org = db.merge_github_organization(name, slug)
         db.close()
-        return CreateGithubOrganization(organization=GithubOrganization(name=org["name"], slug=org["slug"]))
+        return CreateGithubOrganization(github_organization=GithubOrganization(name=org["name"], slug=org["slug"]))
 
 class CreateGithubRepository(graphene.Mutation):
     class Arguments:
@@ -195,7 +195,7 @@ class CreateGithubRepository(graphene.Mutation):
         db = Neo4jDriver()
         repo = db.merge_github_repository(org_slug, name, url, description)
         db.close()
-        return CreateGithubRepository(repository=GithubRepository(name=repo["name"], url=repo["url"], description=repo["description"]))
+        return CreateGithubRepository(github_repository=GithubRepository(name=repo["name"], url=repo["url"], description=repo["description"]))
 
 class Mutation(graphene.ObjectType):
     create_github_organization = CreateGithubOrganization.Field()
