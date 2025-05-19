@@ -135,4 +135,52 @@ class Query(graphene.ObjectType):
             contributors=contributors
         )
 
-schema = graphene.Schema(query=Query)
+
+class CreateOrganization(graphene.Mutation):
+    class Arguments:
+        name = graphene.String(required=True)
+        slug = graphene.String(required=True)
+
+    organization = graphene.Field(Organization)
+
+    def mutate(self, info, name, slug):
+        db = Neo4jDriver()
+        org = db.merge_organization(name, slug)
+        db.close()
+        return CreateOrganization(organization=Organization(name=org["name"], slug=org["slug"]))
+
+class CreateRepository(graphene.Mutation):
+    class Arguments:
+        org_slug = graphene.String(required=True)
+        name = graphene.String(required=True)
+        url = graphene.String(required=True)
+        description = graphene.String()
+
+    repository = graphene.Field(Repository)
+
+    def mutate(self, info, org_slug, name, url, description=""):
+        db = Neo4jDriver()
+        repo = db.merge_repository(org_slug, name, url, description)
+        db.close()
+        return CreateRepository(repository=Repository(name=repo["name"], url=repo["url"], description=repo["description"]))
+
+class CreateJob(graphene.Mutation):
+    class Arguments:
+        org_slug = graphene.String(required=True)
+        repo_url = graphene.String(required=True)
+        kind = graphene.String(required=True)
+
+    ok = graphene.Boolean()
+
+    def mutate(self, info, org_slug, repo_url, kind):
+        db = Neo4jDriver()
+        db.create_job(org_slug, repo_url, kind)
+        db.close()
+        return CreateJob(ok=True)
+
+class Mutation(graphene.ObjectType):
+    create_organization = CreateOrganization.Field()
+    create_repository = CreateRepository.Field()
+    create_job = CreateJob.Field()
+
+schema = graphene.Schema(query=Query, mutation=Mutation)
