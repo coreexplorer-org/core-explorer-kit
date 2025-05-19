@@ -227,27 +227,48 @@ class Neo4jDriver:
             )
             return result.single()["s"]
 
-    def start_job(self, run_id: str):
+    def import_repository_job(self, repo_url: str, job_id: Optional[str] = None):
+        if job_id is None:
+            job_id = uuid4()
+
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (j:Job {run_id: $run_id})
-                SET j.started_at = datetime()
+                MATCH (r:GithubRepository {url: $repo_url})
+                MERGE (s:Source {kind: 'GIT'})
+                CREATE (j:Job {job_id: $job_id, created_at: datetime()})
+                MERGE (j)<-[ib:IMPORTED_BY]-(r)
+                MERGE (j)-[:IMPORTS_SOURCE]->(s)
+                ON CREATE SET ib.import_job_scheduled = datetime()
                 RETURN j
                 """,
-                run_id=run_id
+                repo_url=repo_url,
+                job_id=job_id
             )
             return result.single()["j"]
 
-    def complete_job(self, run_id: str):
+
+    def start_job(self, job_id: str):
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (j:Job {run_id: $run_id})
+                MATCH (j:Job {job_id: $job_id})
+                SET j.started_at = datetime()
+                RETURN j
+                """,
+                job_id=job_id
+            )
+            return result.single()["j"]
+
+    def complete_job(self, job_id: str):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (j:Job {job_id: $job_id})
                 SET j.completed_at = datetime()
                 RETURN j
                 """,
-                run_id=run_id
+                job_id=job_id
             )
             return result.single()["j"]
 
@@ -257,7 +278,7 @@ class Neo4jDriver:
                 """
                 MATCH (j:Job)-[:IMPORTS_SOURCE]->(s:Source)
                 WHERE NOT EXISTS(j.started_at)
-                RETURN j.run_id AS run_id, s.kind AS kind, s.url AS url
+                RETURN j.job_id AS job_id, s.kind AS kind, s.url AS url
                 """
             )
             return [record.data() for record in result]
