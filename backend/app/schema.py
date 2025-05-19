@@ -193,24 +193,9 @@ class CreateRepository(graphene.Mutation):
         db.close()
         return CreateRepository(repository=Repository(name=repo["name"], url=repo["url"], description=repo["description"]))
 
-class CreateJob(graphene.Mutation):
-    class Arguments:
-        org_slug = graphene.String(required=True)
-        repo_url = graphene.String(required=True)
-        kind = graphene.String(required=True)
-
-    ok = graphene.Boolean()
-
-    def mutate(self, info, org_slug, repo_url, kind):
-        db = Neo4jDriver()
-        db.create_job(org_slug, repo_url, kind)
-        db.close()
-        return CreateJob(ok=True)
-
 class Mutation(graphene.ObjectType):
     create_organization = CreateOrganization.Field()
     create_repository = CreateRepository.Field()
-    create_job = CreateJob.Field()
 
 schema = graphene.Schema(query=Query, mutation=Mutation)
 ma = graphene.Schema(query=Query)
