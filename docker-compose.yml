@@ -65,6 +65,7 @@ services:
       - neo4j
       # - repex
       - frontend
+      - backend
     networks:
       - appnet
 
