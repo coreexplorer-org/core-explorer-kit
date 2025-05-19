@@ -152,7 +152,7 @@ class Neo4jDriver:
         with self.driver.session() as session:
             result = session.run(
                 """
-                MERGE (o:Organization {slug: $slug})
+                MERGE (o:GithubOrganization {slug: $slug})
                 ON CREATE SET o.name = $name
                 RETURN o
                 """,
