@@ -4,6 +4,7 @@ import config
 import time
 import json
 from git import Repo, Commit, Actor
+import uuid
 
 
 class Neo4jDriver:
@@ -184,7 +185,7 @@ class Neo4jDriver:
             result = session.run(
                 """
                 MATCH (r:Repository {url: $repo_url})
-                MERGE (s:Source {kind: 'GIT', url: $repo_url})
+                MERGE (s:Source {kind: 'GIT'})
                 CREATE (j:Job {run_id: $run_id, created_at: datetime()})
                 MERGE (j)<-[ib:IMPORTED_BY]-(r)
                 MERGE (j)-[:IMPORTS_SOURCE]->(s)
@@ -230,71 +231,18 @@ class Neo4jDriver:
             )
             return result.single()["l"]
 
-    def merge_pull_request(self, repo_url: str, number: int, title: str, state: str):
+    def merge_source(self, kind: str, name: str ):
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (r:Repository {url: $repo_url})
-                MERGE (pr:PullRequest {number: $number})
-                ON CREATE SET pr.title = $title, pr.state = $state
-                MERGE (r)-[:HAS_PR]->(pr)
-                RETURN pr
-                """,
-                repo_url=repo_url,
-                number=number,
-                title=title,
-                state=state
-            )
-            return result.single()["pr"]
-
-    def merge_comment(self, pr_number: int, comment_id: int, body: str, author_email: str, ts: float, file_path: str, line_number: int):
-        with self.driver.session() as session:
-            result = session.run(
-                """
-                MATCH (pr:PullRequest {number: $pr_number})
-                MATCH (f:File {path: $file_path})
-                MERGE (c:Comment {id: $comment_id})
-                ON CREATE SET c.body = $body, c.author = $author, c.ts = datetime({epochSeconds: $ts})
-                MERGE (pr)-[:HAS_COMMENT]->(c)
-                MERGE (c)-[:REFERS_TO {line: $line_number}]->(f)
-                RETURN c
-                """,
-                pr_number=pr_number,
-                comment_id=comment_id,
-                body=body,
-                author=author_email,
-                ts=int(ts),
-                file_path=file_path,
-                line_number=line_number
-            )
-            return result.single()["c"]
-
-    def merge_source(self, kind: str, url: str):
-        with self.driver.session() as session:
-            result = session.run(
-                """
-                MERGE (s:Source {url: $url})
-                ON CREATE SET s.kind = $kind
+                MERGE (s:Source {kind: $kind})
+                ON CREATE SET s.name = $name
                 RETURN s
                 """,
                 kind=kind,
-                url=url
+                name=name
             )
             return result.single()["s"]
-
-    def create_job(self, kind: str, run_id: str):
-        with self.driver.session() as session:
-            result = session.run(
-                """
-                MATCH (s:Source {kind: $kind})
-                CREATE (j:Job {run_id: $run_id, created_at: datetime()})
-                MERGE (j)-[:IMPORTS_SOURCE]->(s)
-                RETURN j
-                """,
-                kind=kind,
-                run_id=run_id
-            )
-            return result.single()["j"]
 
     def start_job(self, run_id: str):
         with self.driver.session() as session:
