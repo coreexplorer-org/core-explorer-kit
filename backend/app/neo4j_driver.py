@@ -169,12 +169,12 @@ class Neo4jDriver:
             )
             return result.single()["o"]
 
-    def merge_repository(self, org_slug: str, name: str, url: str, description: str = ""):
+    def merge_github_repository(self, org_slug: str, name: str, url: str, description: str = ""):
         with self.driver.session() as session:
             result = session.run(
                 """
                 MATCH (org:GithubOrganization {slug: $org_slug})
-                MERGE (r:Repository {url: $url})
+                MERGE (r:GithubRepository {url: $url})
                 ON CREATE SET r.name = $name, r.description = $description
                 MERGE (org)-[:HAS_REPOSITORY]->(r)
                 RETURN r
@@ -184,13 +184,13 @@ class Neo4jDriver:
                 url=url,
                 description=description
             )
-            return result.single()
+            return result.single()["r"]
 
-    def get_all_repositories(self):
+    def get_all_github_repositories(self):
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (r:Repository)
+                MATCH (r:GithubRepository)
                 RETURN r.name AS name, r.url AS url, r.description AS description
                 """
             )
@@ -206,6 +206,28 @@ class Neo4jDriver:
             )
             return [record.data() for record in result]
 
+    def get_github_organization_by_slug(self, slug: str):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (o:GithubOrganization {slug: $slug})
+                RETURN o.name AS name, o.slug AS slug
+                """,
+                slug=slug
+            )
+            return result.single()
+
+
+    def get_github_repository_by_url(self, url: str):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (r:GithubRepository {url: $url})
+                RETURN r.name AS name, r.url AS url, r.description AS description
+                """,
+                url=url
+            )
+            return result.single()
 
 
 if __name__ == "__main__":
