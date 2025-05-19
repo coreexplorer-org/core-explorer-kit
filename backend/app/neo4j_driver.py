@@ -153,7 +153,7 @@ class Neo4jDriver:
                 for r in result
                 ]
 
-    def merge_organization(self, name: str, slug: str, org_id: Optional[str] = None):
+    def merge_github_organization(self, name: str, slug: str, org_id: Optional[str] = None):
         if org_id is None:
             org_id = uuid.uuid4().hex 
         with self.driver.session() as session:
@@ -184,7 +184,7 @@ class Neo4jDriver:
                 url=url,
                 description=description
             )
-            return result.single()["r"]
+            return result.single()
 
     def get_all_repositories(self):
         with self.driver.session() as session:

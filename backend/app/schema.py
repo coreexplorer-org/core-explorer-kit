@@ -1,4 +1,6 @@
 import graphene
+from graphql import GraphQLError
+
 from neo4j_driver import Neo4jDriver  # make sure this is accessible
 import json
 import io
@@ -33,7 +35,7 @@ class Repository(graphene.ObjectType):
     description = graphene.String()
     url = graphene.String()
 
-class Organization(graphene.ObjectType):
+class GithubOrganization(graphene.ObjectType):
     name = graphene.String()
     slug = graphene.String()
 
@@ -50,17 +52,17 @@ class Actor(graphene.ObjectType):
 
 class Query(graphene.ObjectType):
 
-    organizations = graphene.List(Organization, description="List all organizations")
+    github_organizations = graphene.List(GithubOrganization, description="List all organizations")
 
     
     def resolve_organizations(self, info):
         db = Neo4jDriver()
         orgs = db.get_all_organizations()
         db.close()
-        return [Organization(**org) for org in orgs]
+        return [GithubOrganization(**org) for org in orgs]
 
 
-    repositories = graphene.List(Repository, description="List all repositories")
+    github_repositories = graphene.List(Repository, description="List all repositories")
 
 
     def resolve_repositories(self, info):
@@ -107,14 +109,14 @@ class Query(graphene.ObjectType):
             ]
         )
     
-    organization = graphene.Field(Organization, slug=graphene.String(required=True))
+    organization = graphene.Field(GithubOrganization, slug=graphene.String(required=True))
     def resolve_organization(self, info, slug):
         db = Neo4jDriver()
         org = db.get_organization_by_slug(slug)
         db.close()
         if not org:
             return None
-        return Organization(name=org["name"], slug=org["slug"])
+        return GithubOrganization(name=org["name"], slug=org["slug"])
 
 
     repository = graphene.Field(Repository, url=graphene.String(required=True))
@@ -170,13 +172,13 @@ class CreateOrganization(graphene.Mutation):
         name = graphene.String(required=True)
         slug = graphene.String(required=True)
 
-    organization = graphene.Field(Organization)
+    organization = graphene.Field(GithubOrganization)
 
     def mutate(self, info, name, slug):
         db = Neo4jDriver()
-        org = db.merge_organization(name, slug)
+        org = db.merge_github_organization(name, slug)
         db.close()
-        return CreateOrganization(organization=Organization(name=org["name"], slug=org["slug"]))
+        return CreateOrganization(organization=GithubOrganization(name=org["name"], slug=org["slug"]))
 
 class CreateRepository(graphene.Mutation):
     class Arguments:
@@ -188,6 +190,8 @@ class CreateRepository(graphene.Mutation):
     repository = graphene.Field(Repository)
 
     def mutate(self, info, org_slug, name, url, description=""):
+        if not url.startswith(f"https://github.com/{org_slug}/"):
+            raise GraphQLError("Must be a github repository URL starting with https")
         db = Neo4jDriver()
         repo = db.merge_repository(org_slug, name, url, description)
         db.close()
