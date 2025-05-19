@@ -1,4 +1,5 @@
 # src/neo4j_driver.py
+from typing import Optional
 from neo4j import GraphDatabase, Record
 import config
 import time
@@ -6,6 +7,9 @@ import json
 from git import Repo, Commit, Actor
 import uuid
 
+def uuid4():
+    """Generate a random UUID."""
+    return uuid.uuid4().hex
 
 class Neo4jDriver:
     def __init__(self, max_retries=5, retry_delay=2):
@@ -149,12 +153,11 @@ class Neo4jDriver:
                 for r in result
                 ]
 
-    def merge_organization(self, name: str, slug: str = None):
-        slug = slug or name.lower().replace(" ", "-")
+    def merge_github_organization(self, name: str, slug: str):
         with self.driver.session() as session:
             result = session.run(
                 """
-                MERGE (o:Organization {slug: $slug})
+                MERGE (o:GithubOrganization {slug: $slug})
                 ON CREATE SET o.name = $name
                 RETURN o
                 """,
@@ -163,12 +166,12 @@ class Neo4jDriver:
             )
             return result.single()["o"]
 
-    def merge_repository(self, org_slug: str, name: str, url: str, description: str = ""):
+    def merge_github_repository(self, org_slug: str, name: str, url: str, description: str = ""):
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (org:Organization {slug: $org_slug})
-                MERGE (r:Repository {url: $url})
+                MATCH (org:GithubOrganization {slug: $org_slug})
+                MERGE (r:GithubRepository {url: $url})
                 ON CREATE SET r.name = $name, r.description = $description
                 MERGE (org)-[:HAS_REPOSITORY]->(r)
                 RETURN r
@@ -180,56 +183,36 @@ class Neo4jDriver:
             )
             return result.single()["r"]
 
-    def import_repository_job(self, repo_url: str, run_id: str):
+    def get_all_github_repositories(self):
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (r:Repository {url: $repo_url})
-                MERGE (s:Source {kind: 'GIT'})
-                CREATE (j:Job {run_id: $run_id, created_at: datetime()})
-                MERGE (j)<-[ib:IMPORTED_BY]-(r)
-                MERGE (j)-[:IMPORTS_SOURCE]->(s)
-                ON CREATE SET ib.import_job_scheduled = datetime()
-                RETURN j
-                """,
-                repo_url=repo_url,
-                run_id=run_id
-            )
-            return result.single()["j"]
-
-    def get_all_repositories(self):
-        with self.driver.session() as session:
-            result = session.run(
-                """
-                MATCH (r:Repository)
+                MATCH (r:GithubRepository)
                 RETURN r.name AS name, r.url AS url, r.description AS description
                 """
             )
             return [record.data() for record in result]
 
-    def get_all_organizations(self):
+    def get_all_github_organizations(self):
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (o:Organization)
+                MATCH (o:GithubOrganization)
                 RETURN o.name AS name, o.slug AS slug
                 """
             )
             return [record.data() for record in result]
 
-    def merge_label(self, repo_url: str, label_name: str):
+    def get_github_organization_by_slug(self, slug: str):
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (r:Repository {url: $url})
-                MERGE (l:GitLabel {name: $label})
-                MERGE (r)-[:HAS_GIT_LABEL]->(l)
-                RETURN l
+                MATCH (o:GithubOrganization {slug: $slug})
+                RETURN o.name AS name, o.slug AS slug
                 """,
-                url=repo_url,
-                label=label_name
+                slug=slug
             )
-            return result.single()["l"]
+            return result.single()
 
     def merge_source(self, kind: str, name: str ):
         with self.driver.session() as session:
@@ -279,7 +262,16 @@ class Neo4jDriver:
             )
             return [record.data() for record in result]
 
-
+    def get_github_repository_by_url(self, url: str):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (r:GithubRepository {url: $url})
+                RETURN r.name AS name, r.url AS url, r.description AS description
+                """,
+                url=url
+            )
+            return result.single()
 
 
 if __name__ == "__main__":
