@@ -32,16 +32,16 @@ services:
     ports:
       - "5000:5000"
       
-  repex:
-    build: ../repex
-    restart: unless-stopped
-    volumes:
-      - ./data/user_supplied_repo:/app/bitcoin  # Persist data in project folder
-    depends_on:
-      neo4j:
-        condition: service_healthy
-    networks:
-      - appnet
+  # repex:
+  #   build: ../repex
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./data/user_supplied_repo:/app/bitcoin  # Persist data in project folder
+  #   depends_on:
+  #     neo4j:
+  #       condition: service_healthy
+  #   networks:
+  #     - appnet
 
   frontend:
     build: ../CE_demo
@@ -49,7 +49,8 @@ services:
     expose:
       - "3000"
     depends_on:
-      - repex
+      # - repex
+      - neo4j
     networks:
       - appnet
 
@@ -62,7 +63,7 @@ services:
       - "80:80"
     depends_on:
       - neo4j
-      - repex
+      # - repex
       - frontend
     networks:
       - appnet
