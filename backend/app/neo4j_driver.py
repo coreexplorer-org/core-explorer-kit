@@ -217,6 +217,10 @@ class Neo4jDriver:
             )
             return result.single()
 
+    # Used for figuring out what import data import steps steps have been completed
+    def get_processing_flags(self):
+        with self.driver.session() as session:
+            session.run("MATCH (n:ProcessingEvent)-[e:EXECUTED]->(r:DataSource)")
 
 if __name__ == "__main__":
     db = Neo4jDriver()
