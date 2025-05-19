@@ -83,15 +83,6 @@ class Neo4jDriver:
             author=author_props, commit=commit_props
         )
 
-    def create_relationship(self, from_id, to_id, rel_type):
-        with self.driver.session() as session:
-            query = """
-            MATCH (a), (b)
-            WHERE id(a) = $from_id AND id(b) = $to_id
-            CREATE (a)-[:%s]->(b)
-            """ % rel_type
-            session.run(query, from_id=from_id, to_id=to_id)
-
     def get_all_actors(self):
         with self.driver.session() as session:
             query = "MATCH (a:Actor) RETURN a.name AS name, a.email AS email"
