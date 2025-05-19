@@ -1,10 +1,15 @@
 # src/neo4j_driver.py
+from typing import Optional
 from neo4j import GraphDatabase, Record
 import config
 import time
 import json
 from git import Repo, Commit, Actor
+import uuid
 
+def uuid4():
+    """Generate a random UUID."""
+    return uuid.uuid4().hex
 
 class Neo4jDriver:
     def __init__(self, max_retries=5, retry_delay=2):
@@ -146,7 +151,80 @@ class Neo4jDriver:
                     "authored_date": r["authored_date"]
                 }
                 for r in result
-            ]
+                ]
+
+    def merge_github_organization(self, name: str, slug: str):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MERGE (o:GithubOrganization {slug: $slug})
+                ON CREATE SET o.name = $name
+                RETURN o
+                """,
+                slug=slug,
+                name=name
+            )
+            return result.single()["o"]
+
+    def merge_github_repository(self, org_slug: str, name: str, url: str, description: str = ""):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (org:GithubOrganization {slug: $org_slug})
+                MERGE (r:GithubRepository {url: $url})
+                ON CREATE SET r.name = $name, r.description = $description
+                MERGE (org)-[:HAS_REPOSITORY]->(r)
+                RETURN r
+                """,
+                org_slug=org_slug,
+                name=name,
+                url=url,
+                description=description
+            )
+            return result.single()["r"]
+
+    def get_all_github_repositories(self):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (r:GithubRepository)
+                RETURN r.name AS name, r.url AS url, r.description AS description
+                """
+            )
+            return [record.data() for record in result]
+
+    def get_all_github_organizations(self):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (o:GithubOrganization)
+                RETURN o.name AS name, o.slug AS slug
+                """
+            )
+            return [record.data() for record in result]
+
+    def get_github_organization_by_slug(self, slug: str):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (o:GithubOrganization {slug: $slug})
+                RETURN o.name AS name, o.slug AS slug
+                """,
+                slug=slug
+            )
+            return result.single()
+
+
+    def get_github_repository_by_url(self, url: str):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (r:GithubRepository {url: $url})
+                RETURN r.name AS name, r.url AS url, r.description AS description
+                """,
+                url=url
+            )
+            return result.single()
 
 
 if __name__ == "__main__":
