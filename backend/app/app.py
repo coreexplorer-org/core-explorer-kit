@@ -1,6 +1,6 @@
 import socket
 from functools import wraps
-
+from git_processor import process_git_data
 from flask import Flask, request, make_response
 from flask_graphql import GraphQLView
 from schema import schema
@@ -31,6 +31,10 @@ def hello():
         "<b>Hostname:</b> {hostname}<br/>"
     )
     return html.format(hostname=socket.gethostname())
+
+@app.route("/process_git_data_to_neo4j/") # is this just "do_some_jobs" ? 
+def process_git_data_to_neo4j():
+    process_git_data()
 
 # GraphQL endpoint with CORS:
 graphql_view = allow_all_origins(
