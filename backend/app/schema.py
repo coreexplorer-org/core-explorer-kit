@@ -7,6 +7,22 @@ import io
 import gitfame
 from contextlib import redirect_stdout
 
+class SourceKind(graphene.Enum):
+    """Enumerates the possible kinds of data sources we support."""
+    GIT = "GIT"
+
+
+class Source(graphene.ObjectType):
+    """Represents a data source (e.g. a Git repository, an external API)."""
+    name = graphene.String()
+    kind = graphene.Field(SourceKind)
+
+
+class Job(graphene.ObjectType):
+    """Represents an asynchronous import job."""
+    run_id = graphene.String()
+    repo_url = graphene.String()
+    status = graphene.String()
 
 class FameDetail(graphene.ObjectType):
     email = graphene.String()
@@ -197,9 +213,29 @@ class CreateGithubRepository(graphene.Mutation):
         db.close()
         return CreateGithubRepository(github_repository=GithubRepository(name=repo["name"], url=repo["url"], description=repo["description"]))
 
+class ImportRepositoryJob(graphene.Mutation):
+    """Queue a job to import a repository. Returns the enqueued Job object."""
+
+    class Arguments:
+        repo_url = graphene.String(required=True)
+        run_id = graphene.String(required=True)
+
+    job = graphene.Field(Job)
+
+    def mutate(self, info, repo_url, run_id):
+        db = Neo4jDriver()
+        job_data = db.import_repository_job(repo_url, run_id)
+        db.close()
+        if not job_data:
+            raise GraphQLError("Failed to create import job")
+        return ImportRepositoryJob(job=Job(**job_data))
+
+
+
 class Mutation(graphene.ObjectType):
     create_github_organization = CreateGithubOrganization.Field()
     create_github_repository = CreateGithubRepository.Field()
+    import_repository_job = ImportRepositoryJob.Field()
 
 schema = graphene.Schema(query=Query, mutation=Mutation)
 ma = graphene.Schema(query=Query)
