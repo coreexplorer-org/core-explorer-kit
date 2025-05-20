@@ -217,6 +217,23 @@ class Neo4jDriver:
             )
             return result.single()
 
+    ## Find and Author and return all their commits, broken out by date
+    def commits_over_time_for_actor(self, data):
+        with self.driver.session() as session:
+            result = session.execute_read(self._commits_over_time_for_actor, data)
+            return result
+    @staticmethod
+    def _commits_over_time_for_actor(tx, data):
+        query = """
+            match (a:Actor {email: $actor_email})-[com_detail:AUTHORED]->(c:Commit)
+            return a.name, dateTime({ epochSeconds: com_detail.authored_date}) as DateAuthored, c
+            """
+        result = tx.run(query, actor_email = data)
+        print(f"HALLDLKJSDFLKJSDFLKJSDFLKJSDF {result}", flush=True)
+        record = result.single()
+            
+        return record
+
     # Used for figuring out what import data import steps steps have been completed
     # def get_processing_flags(self):
     #     with self.driver.session() as session:
@@ -226,7 +243,6 @@ class Neo4jDriver:
         with self.driver.session() as session:
             result = session.execute_write(self._insert_folder_level_details, data)
             return result
-
 
     @staticmethod
     def _insert_folder_level_details(tx, data):

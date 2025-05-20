@@ -49,8 +49,24 @@ class Actor(graphene.ObjectType):
     authored_commits = graphene.List(Commit)
     committed_commits = graphene.List(Commit)
 
+class CommitsOnDate(graphene.ObjectType):
+    date = graphene.String()
+    commits = graphene.List(Commit)
+
+class CommitsOverTimeForActor(graphene.ObjectType):
+    commits = graphene.List(CommitsOnDate)
+    authors = graphene.List(Actor)
+
 
 class Query(graphene.ObjectType):
+
+    commits_over_time_for_author = graphene.List(CommitsOnDate, description="List of Commits On Date")
+    def resolve_commits_over_time_for_author(self, info):
+        db = Neo4jDriver()
+        orgs = db.commits_over_time_for_actor("satosin@gmx.com")
+        db.close()
+        # return [GithubOrganization(**org) for org in orgs]
+        return "derp"
 
     github_organizations = graphene.List(GithubOrganization, description="List all organizations")
 
@@ -165,7 +181,6 @@ class Query(graphene.ObjectType):
             commits=raw["total"]["commits"],
             contributors=contributors
         )
-
 
 class CreateGithubOrganization(graphene.Mutation):
     class Arguments:
