@@ -720,7 +720,7 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
     // Function to send GraphQL queries directly to the API
     async function sendQuery(query) {
       try {
-        const response = await fetch('http://coreexplorer.org/api/graphql', {
+        const response = await fetch('/api/graphql', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query })
@@ -751,7 +751,7 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
             actor(email: "${email}") {
               name
             }
-            repository(name: "bitcoin") {
+            repository:githubRepository(url: "https://github.com/bitcoin/bitcoin.git") {
               name
               description
               url
