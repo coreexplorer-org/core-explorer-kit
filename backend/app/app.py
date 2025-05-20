@@ -32,9 +32,17 @@ def hello():
     )
     return html.format(hostname=socket.gethostname())
 
+
 @app.route("/process_git_data_to_neo4j/") # is this just "do_some_jobs" ? 
 def process_git_data_to_neo4j():
     process_git_data()
+
+    html = (
+        "<h3>Processing Git Data is Complete</h3>"
+        "<b>Hostname:</b> {hostname}<br/>"
+    )
+    return html.format(hostname=socket.gethostname())
+
 
 # GraphQL endpoint with CORS:
 graphql_view = allow_all_origins(

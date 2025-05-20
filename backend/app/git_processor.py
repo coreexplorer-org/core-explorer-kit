@@ -27,7 +27,7 @@ def process_commit(db: Neo4jDriver, commit: Commit):
 def process_git_data():
     repo = Repo(config.LOCAL_REPO_PATH)
     db = Neo4jDriver()
-    status_flag = db.get_import_status()
+    status_flag = db.merge_import_status()
     print("Import Process Status Result:", status_flag)
     # db.clear_database()
 
@@ -49,7 +49,7 @@ def process_git_data():
 
     return
 
-def process_path_into_db(repo, db, folder_path):
+def process_path_into_db(repo, db:Neo4jDriver, folder_path):
     relevant_data = find_relevant_commits(repo, folder_path)
     db.insert_folder_level_details(relevant_data)
 

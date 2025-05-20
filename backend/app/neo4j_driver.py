@@ -66,8 +66,6 @@ class Neo4jDriver:
             result = session.run(query, name=actor.name, email=actor.email)
             return result.single()["elementId(a)"]
 
-
-        
     def merge_actor_node(self, properties) -> Record:
         with self.driver.session() as session:
             query = "MERGE (n:Actor {name: $props.name, email: $props.email}) RETURN n"
@@ -242,15 +240,16 @@ class Neo4jDriver:
         record = result.single()
         return record["file_detail_record"]
     
-    def get_import_status(self):
+    def merge_import_status(self):
         with self.driver.session() as session:
-            result = session.execute_read(self._get_import_status_node)
+            result = session.execute_write(self._merge_import_status_node)
             return result
 
     @staticmethod
-    def _get_import_status_node(tx):
+    def _merge_import_status_node(tx):
         query = """
-        MATCH (a:ImportStatus)
+        MERGE (a:ImportStatus)
+        ON CREATE SET a.git_import_complete = false, a.next_complete = false
         RETURN a.git_import_complete, a.next_complete
         """
         result = tx.run(query)
