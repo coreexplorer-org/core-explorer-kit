@@ -6,7 +6,7 @@ services:
       - "7474:7474"  # HTTP interface
       - "7687:7687"  # Bolt protocol
     environment:
-      - NEO4J_AUTH=neo4j/password  # Set initial username/password
+      - NEO4J_AUTH=neo4j/password  # Set initial username/password # TODO Get this from ENV file
     volumes:
       - ./data/neo4j:/data  # Persist data in project folder
     restart: unless-stopped
@@ -31,17 +31,6 @@ services:
       - appnet
     ports:
       - "5000:5000"
-      
-  repex:
-    build: ../repex
-    restart: unless-stopped
-    volumes:
-      - ./data/user_supplied_repo:/app/bitcoin  # Persist data in project folder
-    depends_on:
-      neo4j:
-        condition: service_healthy
-    networks:
-      - appnet
 
   nginx:
     image: nginx:alpine
@@ -53,7 +42,7 @@ services:
       - "80:80"
     depends_on:
       - neo4j
-      - repex
+      - backend
     networks:
       - appnet
 
