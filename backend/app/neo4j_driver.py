@@ -220,19 +220,27 @@ class Neo4jDriver:
     ## Find and Author and return all their commits, broken out by date
     def commits_over_time_for_actor(self, data):
         with self.driver.session() as session:
-            result = session.execute_read(self._commits_over_time_for_actor, data)
-            return result
+
+            return session.execute_read(self._commits_over_time_for_actor, data)
+
     @staticmethod
     def _commits_over_time_for_actor(tx, data):
         query = """
-            match (a:Actor {email: $actor_email})-[com_detail:AUTHORED]->(c:Commit)
-            return a.name, dateTime({ epochSeconds: com_detail.authored_date}) as DateAuthored, c
-            """
-        result = tx.run(query, actor_email = data)
-        print(f"HALLDLKJSDFLKJSDFLKJSDFLKJSDF {result}", flush=True)
-        record = result.single()
+            match (a :Actor {email: $actor_email})-[b:AUTHORED]->(c:Commit)
             
-        return record
+                with datetime({ epochSeconds: b.authored_date}) as DateAuthored, b, c, a
+
+                with DateAuthored as date_finally, b, c, a
+                with apoc.date.format(b.authored_date, "s", 'MMM d yyyy') as output, c, a
+
+                return
+                distinct output as date,
+                count(c) as commits_on_day,
+                collect({summary: c.summary, message: c.message, commit_hash: c.commit_hash}) as commits
+            """
+
+        result = tx.run(query, actor_email = data)    
+        return result.data()
 
     # Used for figuring out what import data import steps steps have been completed
     # def get_processing_flags(self):
