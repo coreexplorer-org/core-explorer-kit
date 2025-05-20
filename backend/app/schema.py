@@ -67,7 +67,7 @@ class Query(graphene.ObjectType):
 
     def resolve_github_repositories(self, info):
         db = Neo4jDriver()
-        repos = db.get_all_repositories()
+        repos = db.get_all_github_repositories()
         db.close()
         return [GithubRepository(**repo) for repo in repos]
 
@@ -121,9 +121,9 @@ class Query(graphene.ObjectType):
 
     github_repository = graphene.Field(GithubRepository, url=graphene.String(required=True))
 
-    def resolve_repository(self, info, url):
+    def resolve_github_repository(self, info, url):
         db = Neo4jDriver()
-        repo = db.get_repository_by_url(url)
+        repo = db.get_github_repository_by_url(url)
         db.close()
         if not repo:
             return None
