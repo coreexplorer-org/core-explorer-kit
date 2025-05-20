@@ -73,7 +73,7 @@ class Query(graphene.ObjectType):
     
     def resolve_organizations(self, info):
         db = Neo4jDriver()
-        orgs = db.get_all_organizations()
+        orgs = db.get_all_github_organizations()
         db.close()
         return [GithubOrganization(**org) for org in orgs]
 
@@ -83,7 +83,7 @@ class Query(graphene.ObjectType):
 
     def resolve_github_repositories(self, info):
         db = Neo4jDriver()
-        repos = db.get_all_repositories()
+        repos = db.get_all_github_repositories()
         db.close()
         return [GithubRepository(**repo) for repo in repos]
 
