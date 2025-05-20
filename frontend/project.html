@@ -1,4 +1,43 @@
-<!DOCTYPE html>
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -206,6 +245,10 @@ footer .navbar-nav {
     margin-bottom: 15px;
 }
 .project-details {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
     text-align: center;
 }
 .project-details h3 {
@@ -295,6 +338,16 @@ footer .navbar-nav {
         width: 250px;
     }
 }
+@media (min-width: 576px) and (max-width: 991px) {
+    /* Tablet mode: Center title and description vertically and horizontally */
+    .project-details {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+    }
+}
 @media (min-width: 992px) {
     .navbar-nav {
         display: flex;
@@ -315,14 +368,20 @@ footer .navbar-nav {
     .stat-row {
         display: flex;
     }
-    .blog-card {max-width: 800px; margin-left: auto; margin-right: auto}
-    .card.view-card {max-width: 400px; margin-left: auto; margin-right: auto}
+    /* Desktop size adjustments: Increase font sizes for better readability */
     .content-container h1 {font-size: 2.5em}
     .content-container p {font-size: 1.2em}
+    .project-details h3 {font-size: 2em}
+    /* Set max-width for graphic placeholders to prevent over-expansion */
+    .graphic-placeholder {
+        max-width: 800px;
+        margin-left: auto;
+        margin-right: auto;
+    }
 }
 @media (max-width: 991px) {
     .project-section {
-        align-items: flex-start;
+        align-items: center; /* Center horizontally on mobile and tablet */
     }
     .project-profile {
         margin-bottom: 15px;
@@ -369,7 +428,6 @@ footer .navbar-nav {
     .search-bar {
         font-size: 0.9em;
     }
-    .view-card {margin-bottom: 15px}
 }
 @media (max-width: 767px) {
     .blog-card-thumbnail {height:100px}
@@ -419,62 +477,54 @@ body:not(.light-mode) .separator-line {border-top-color: var(--bs-border-color)}
 
   <div class="container-fluid content-container box">
     <div class="row">
-      <div class="col-12 text-center">
-        <h1>Welcome to Core Explorer!</h1>
-        <p>A data science visualizer for the Bitcoin Core repository.</p>
-      </div>
-    </div>
-    <div class="row">
-      <div class="col-md-4">
-        <a href="project.html">
-          <div class="card view-card">
-            <div class="card-img-top">
-              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAACXBIWXMAAAsTAAALEwEAmpwYAAABJUlEQVR4nO3SMQ2AQBAEQXr/SSuIu0ABgSFB0F5hbt9hV8gYAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPjvD7wAAdW/dxUAAAAASUVORK5CYII=" alt="Project View Image">
-            </div>
-            <div class="card-body">
-              <h5 class="card-title">Project View</h5>
+      <main class="col-12 main-content">
+        <div class="project-section">
+          <div class="project-profile">
+            <div class="project-details">
+              <h3>Welcome to Core Explorer</h3>
+              <p>A data science visualizer for the Bitcoin Core repository.</p>
             </div>
           </div>
-        </a>
-      </div>
-      <div class="col-md-4">
-        <a href="profile.html">
-          <div class="card view-card">
-            <div class="card-img-top">
-              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAACXBIWXMAAAsTAAALEwEAmpwYAAABJUlEQVR4nO3SMQ2AQBAEQXr/SSuIu0ABgSFB0F5hbt9hV8gYAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPjvD7wAAdW/dxUAAAAASUVORK5CYII=" alt="Actor View Image">
+          <div class="stat-table box">
+            <table>
+              <tr>
+                <th>Lines of Code</th>
+                <td>3,214</td>
+              </tr>
+              <tr>
+                <th>Files</th>
+                <td>4,321</td>
+              </tr>
+              <tr>
+                <th>Commits</th>
+                <td>44,727</td>
+              </tr>
+            </table>
+          </div>
+          <div class="stat-row box">
+            <div class="stat-item">
+              <span class="stat-label">Lines of Code</span>
+              <span class="stat-value">3,214</span>
             </div>
-            <div class="card-body">
-              <h5 class="card-title">Actor View</h5>
+            <span class="stat-divider">|</span>
+            <div class="stat-item">
+              <span class="stat-label">Files</span>
+              <span class="stat-value">4,321</span>
+            </div>
+            <span class="stat-divider">|</span>
+            <div class="stat-item">
+              <span class="stat-label">Commits</span>
+              <span class="stat-value">44,727</span>
             </div>
           </div>
-        </a>
-      </div>
-      <div class="col-md-4">
-        <a href="file.html">
-          <div class="card view-card">
-            <div class="card-img-top">
-              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAACXBIWXMAAAsTAAALEwEAmpwYAAABJUlEQVR4nO3SMQ2AQBAEQXr/SSuIu0ABgSFB0F5hbt9hV8gYAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPjvD7wAAdW/dxUAAAAASUVORK5CYII=" alt="File View Image">
-            </div>
-            <div class="card-body">
-              <h5 class="card-title">File View</h5>
-            </div>
-          </div>
-        </a>
-      </div>
-    </div>
-    <div class="row">
-      <div class="col-12">
-        <hr class="separator-line">
-      </div>
-    </div>
-    <div class="row">
-      <div class="col-12">
-        <div class="blog-posts">
-          <h3>Latest Blog Posts</h3>
-          <div id="blog-posts-container"></div>
-          <a href="https://blog.coreexplorer.org/" class="btn btn-primary">Read more</a>
         </div>
-      </div>
+        <div class="graphic-placeholder">
+          [Placeholder for Neo4j graph visualization]
+        </div>
+        <div class="graphic-placeholder">
+          [Placeholder for heat map visualization]
+        </div>
+      </main>
     </div>
   </div>
 
@@ -515,176 +565,6 @@ body:not(.light-mode) .separator-line {border-top-color: var(--bs-border-color)}
     }
     elements.themeToggleHeader.addEventListener('click', toggleTheme);
     elements.themeToggleFooter.addEventListener('click', toggleTheme);
-
-    // Fallback Atom feed data
-    const fallbackFeedData = `
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <id>https://blog.coreexplorer.org/</id>
-  <title>Core Explorer Org</title>
-  <subtitle>Documenting our efforts to develop tools to ensure the integrity of repositories and maintainers</subtitle>
-  <updated>2025-05-16T15:35:22+00:00</updated>
-  <author>
-    <name>Core Explorer Team</name>
-    <uri>https://blog.coreexplorer.org/</uri>
-  </author>
-  <link rel="self" type="application/atom+xml" href="https://blog.coreexplorer.org/feed.xml"/>
-  <link rel="alternate" type="text/html" hreflang="en" href="https://blog.coreexplorer.org/"/>
-  <generator uri="https://jekyllrb.com/" version="4.4.1">Jekyll</generator>
-  <rights> © 2025 Core Explorer Team </rights>
-  <icon>/assets/img/favicons/favicon.ico</icon>
-  <logo>/assets/img/favicons/favicon-96x96.png</logo>
-  <entry>
-    <title>Core Explorer @ BTC++ Austin</title>
-    <link href="https://blog.coreexplorer.org/posts/core-explorer-btc-austin/" rel="alternate" type="text/html" title="Core Explorer @ BTC++ Austin"/>
-    <published>2025-05-16T15:25:00+00:00</published>
-    <updated>2025-05-16T15:25:00+00:00</updated>
-    <id>https://blog.coreexplorer.org/posts/core-explorer-btc-austin/</id>
-    <content type="text/html" src="https://blog.coreexplorer.org/posts/core-explorer-btc-austin/"/>
-    <author>
-      <name>Core Explorer Team</name>
-    </author>
-    <summary>Our Adventure at the btc++ Conference Hackathon in Austin As we reflect on our experience at the btc++ conference hackathon in Austin, we can’t help but feel a sense of excitement and accomplishment. The conference, which drew a very high-signal audience, i would guess 200+ attendees. The Palmer Event Center provided the perfect backdrop for our team of three to come together and hack on the C...</summary>
-  </entry>
-  <entry>
-    <title>How could we analyze commit history?</title>
-    <link href="https://blog.coreexplorer.org/posts/how-could-we-analyze-commit-history/" rel="alternate" type="text/html" title="How could we analyze commit history?"/>
-    <published>2025-05-05T21:33:00+00:00</published>
-    <updated>2025-05-05T21:33:00+00:00</updated>
-    <id>https://blog.coreexplorer.org/posts/how-could-we-analyze-commit-history/</id>
-    <content type="text/html" src="https://blog.coreexplorer.org/posts/how-could-we-analyze-commit-history/"/>
-    <author>
-      <name>Core Explorer Team</name>
-    </author>
-    <summary>Examples of ways to analyze commit history: who reviews who? who gets the most reviews? who gets the least reviews? does anybody merge their own changes? when Alice is reviewing, are they typically giving positive or negative reviews for everybody, or do they express preference to some contributors over others? when Bob is committing co...</summary>
-  </entry>
-  <entry>
-    <title>Exploring the Explorers</title>
-    <link href="https://blog.coreexplorer.org/posts/exploring-the-explorers/" rel="alternate" type="text/html" title="Exploring the Explorers"/>
-    <published>2025-05-05T15:29:00+00:00</published>
-    <updated>2025-05-05T20:13:25+00:00</updated>
-    <id>https://blog.coreexplorer.org/posts/exploring-the-explorers/</id>
-    <content type="text/html" src="https://blog.coreexplorer.org/posts/exploring-the-explorers/"/>
-    <author>
-      <name>Core Explorer Team</name>
-    </author>
-    <summary>Recently, we’ve been discussing how to think about our codebases and how we can improve them to better serve the Bitcoin community. Our conversation started with the question “where do we want to go with our codebases?” and led to an explanation of our current projects, which was the input to this post: repo_explore, vibe_explor, and repex. Each of these codebases has addressed a certain part ...</summary>
-  </entry>
-  <entry>
-    <title>Preparing Core Explorer for some more attention</title>
-    <link href="https://blog.coreexplorer.org/posts/preparing-core-explorer-for-some-more-attention/" rel="alternate" type="text/html" title="Preparing Core Explorer for some more attention"/>
-    <published>2025-05-04T20:29:00+00:00</published>
-    <updated>2025-05-05T22:40:01+00:00</updated>
-    <id>https://blog.coreexplorer.org/posts/preparing-core-explorer-for-some-more-attention/</id>
-    <content type="text/html" src="https://blog.coreexplorer.org/posts/preparing-core-explorer-for-some-more-attention/"/>
-    <author>
-      <name>Core Explorer Team</name>
-    </author>
-    <summary>An Introductory Look at Our Tools for Exploring the Bitcoin Repository You can read the About page. But what else? At coreexplorer.org, we’ve been working on tools to provide insights into the Bitcoin repository, fostering transparency and encouraging community involvement. Today, we’d like to give you a detailed look at the three codebases we’ve developed so far: Repo Explorer, Vibe Explore...</summary>
-  </entry>
-  <entry>
-    <title>Workflow To Merge Commits To Bitcoin Core</title>
-    <link href="https://blog.coreexplorer.org/posts/workflow-to-merge-commits-to-bitcoin-core/" rel="alternate" type="text/html" title="Workflow To Merge Commits To Bitcoin Core"/>
-    <published>2024-05-01T00:00:00+00:00</published>
-    <updated>2024-05-01T00:00:00+00:00</updated>
-    <id>https://blog.coreexplorer.org/posts/workflow-to-merge-commits-to-bitcoin-core/</id>
-    <content type="text/html" src="https://blog.coreexplorer.org/posts/workflow-to-merge-commits-to-bitcoin-core/"/>
-    <author>
-      <name>juansgalt</name>
-    </author>
-    <summary></summary>
-  </entry>
-</feed>
-    `;
-
-    // Fetch and display blog posts from Atom feed
-    async function fetchBlogPosts() {
-      const blogContainer = document.getElementById('blog-posts-container');
-      const rssUrl = 'https://blog.coreexplorer.org/feed.xml';
-      const proxyUrl = 'https://corsproxy.io/?';
-      const fullUrl = proxyUrl + encodeURIComponent(rssUrl);
-
-      let xmlDoc;
-      try {
-        const response = await fetch(fullUrl);
-        if (!response.ok) {
-          throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        const text = await response.text();
-        const parser = new DOMParser();
-        xmlDoc = parser.parseFromString(text, 'text/xml');
-
-        // Check for parsing errors
-        const parseError = xmlDoc.querySelector('parsererror');
-        if (parseError) {
-          throw new Error('Error parsing Atom feed XML');
-        }
-      } catch (error) {
-        console.error('Error fetching or parsing Atom feed:', error);
-        // Use fallback data if fetch fails
-        const parser = new DOMParser();
-        xmlDoc = parser.parseFromString(fallbackFeedData, 'text/xml');
-      }
-
-      try {
-        // Extract the latest 5 entries
-        const entries = xmlDoc.querySelectorAll('entry');
-        const latestEntries = Array.from(entries).slice(0, 5);
-
-        // Clear the container
-        blogContainer.innerHTML = '';
-
-        // Populate blog posts
-        latestEntries.forEach((entry, index) => {
-          const title = entry.querySelector('title')?.textContent || 'Untitled Post';
-          const link = entry.querySelector('link[rel="alternate"][type="text/html"]')?.getAttribute('href') || '#';
-          const summary = entry.querySelector('summary')?.textContent || 'No summary available.';
-          // Truncate summary to first 100 characters for excerpt
-          const excerpt = summary.length > 100 ? summary.substring(0, 100) + '...' : summary;
-
-          // Create card with alternating layout
-          const cardDiv = document.createElement('div');
-          cardDiv.className = 'card blog-card';
-
-          const rowDiv = document.createElement('div');
-          rowDiv.className = 'row no-gutters';
-
-          const thumbnailDiv = document.createElement('div');
-          thumbnailDiv.className = index % 2 === 0 ? 'col-md-6' : 'col-md-6 order-md-2';
-          const thumbnailInnerDiv = document.createElement('div');
-          thumbnailInnerDiv.className = 'blog-card-thumbnail';
-          const icon = document.createElement('i');
-          icon.className = 'bi bi-journal';
-          thumbnailInnerDiv.appendChild(icon);
-          thumbnailDiv.appendChild(thumbnailInnerDiv);
-
-          const contentDiv = document.createElement('div');
-          contentDiv.className = index % 2 === 0 ? 'col-md-6' : 'col-md-6 order-md-1';
-          const contentInnerDiv = document.createElement('div');
-          contentInnerDiv.className = 'blog-card-content';
-          const h6 = document.createElement('h6');
-          const a = document.createElement('a');
-          a.href = link;
-          a.textContent = title;
-          h6.appendChild(a);
-          const p = document.createElement('p');
-          p.textContent = excerpt;
-          contentInnerDiv.appendChild(h6);
-          contentInnerDiv.appendChild(p);
-          contentDiv.appendChild(contentInnerDiv);
-
-          rowDiv.appendChild(thumbnailDiv);
-          rowDiv.appendChild(contentDiv);
-          cardDiv.appendChild(rowDiv);
-          blogContainer.appendChild(cardDiv);
-        });
-      } catch (error) {
-        console.error('Error processing Atom feed data:', error);
-        blogContainer.innerHTML = '<p>Unable to load blog posts. Please try again later.</p>';
-      }
-    }
-
-    // Run after DOM is fully loaded
-    document.addEventListener('DOMContentLoaded', fetchBlogPosts);
   </script>
 </body>
 </html>
