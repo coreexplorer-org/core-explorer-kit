@@ -205,6 +205,74 @@ class Neo4jDriver:
             )
             return result.single()
 
+    def merge_source(self, kind: str, name: str ):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MERGE (s:Source {kind: $kind})
+                ON CREATE SET s.name = $name
+                RETURN s
+                """,
+                kind=kind,
+                name=name
+            )
+            return result.single()["s"]
+
+    def import_repository_job(self, repo_url: str, job_id: Optional[str] = None):
+        if job_id is None:
+            job_id = uuid4()
+
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (r:GithubRepository {url: $repo_url})
+                MERGE (s:Source {kind: 'GIT'})
+                CREATE (j:Job {job_id: $job_id, created_at: datetime()})
+                MERGE (j)<-[ib:IMPORTED_BY]-(r)
+                MERGE (j)-[:IMPORTS_SOURCE]->(s)
+                ON CREATE SET ib.import_job_scheduled = datetime()
+                RETURN j
+                """,
+                repo_url=repo_url,
+                job_id=job_id
+            )
+            return result.single()["j"]
+
+
+    def start_job(self, job_id: str):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (j:Job {job_id: $job_id})
+                SET j.started_at = datetime()
+                RETURN j
+                """,
+                job_id=job_id
+            )
+            return result.single()["j"]
+
+    def complete_job(self, job_id: str):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (j:Job {job_id: $job_id})
+                SET j.completed_at = datetime()
+                RETURN j
+                """,
+                job_id=job_id
+            )
+            return result.single()["j"]
+
+    def get_unstarted_jobs_and_sources(self):
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (j:Job)-[:IMPORTS_SOURCE]->(s:Source)
+                WHERE NOT EXISTS(j.started_at)
+                RETURN j.job_id AS job_id, s.kind AS kind, s.url AS url
+                """
+            )
+            return [record.data() for record in result]
 
     def get_github_repository_by_url(self, url: str):
         with self.driver.session() as session:
