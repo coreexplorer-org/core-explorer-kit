@@ -292,3 +292,174 @@ From inside core-explorer-kit (here), run:
 ```bash
 docker compose up
 ```
+
+
+### What happens now?
+
+After running `docker compose up`, Core Explorer starts its services in a specific order. Here's what happens and what you need to do next:
+
+#### Service Startup Sequence
+
+1. **Neo4j Database** starts first
+   - Initializes the graph database
+   - Creates the `data/neo4j/` directory if it doesn't exist
+   - Waits for health check to pass (checks HTTP interface on port 7474)
+   - **Access**: Neo4j browser UI available at `http://localhost:7474` (username: `neo4j`, password: `password`)
+
+2. **Backend Service** starts after Neo4j is healthy
+   - Flask application starts on port 5000
+   - Connects to Neo4j database
+   - **Note**: The backend does NOT automatically process git data on startup
+   - **Access**: API available at `http://localhost:5000/api/` or via nginx at `http://localhost/api/`
+
+3. **Nginx Reverse Proxy** starts last
+   - Routes API requests to the backend
+   - Serves static frontend files
+   - **Access**: Main entry point at `http://localhost/`
+
+#### First-Time Data Import
+
+**Important**: Core Explorer does not automatically import git data when it starts. You must manually trigger the import process.
+
+**Step 1: Verify Services Are Running**
+
+Check that all services are up:
+```bash
+docker compose ps
+```
+
+You should see all three services (neo4j, backend, nginx) with status "Up".
+
+**Step 2: Trigger Git Data Processing**
+
+Navigate to the processing endpoint in your browser or use curl:
+
+```bash
+# Via nginx (recommended)
+curl http://localhost/process_git_data_to_neo4j/
+
+# Or directly to backend
+curl http://localhost:5000/process_git_data_to_neo4j/
+```
+
+Or open in your browser:
+```
+http://localhost/process_git_data_to_neo4j/
+```
+
+**Note:** this is a synchronous call & will presently timeout in the browser for large `.git` repos (such as `bitcoin`)
+
+**Step 3: What Happens During First-Time Import**
+
+When you trigger the processing endpoint for the first time:
+
+1. **Import Status Check**: The system checks Neo4j for an `ImportStatus` node
+   - If it doesn't exist, creates one with `git_import_complete = false`
+   - This tracks whether the initial commit import has been completed
+
+2. **Initial Commit Processing** (if `git_import_complete = false`):
+   - Reads all commits from the git repository at `config.CONTAINER_SIDE_REPOSITORY_PATH`
+   - For each commit, creates:
+     - **Actor nodes** for authors and committers (with name and email)
+     - **Commit nodes** with commit hash, message, summary, parent SHAs, and dates
+     - **Relationships**: `AUTHORED` and `COMMITTED` edges between actors and commits
+   - Processes commits in chronological order (oldest first)
+   - **This can take a long time** for large repositories (Bitcoin Core has ~50,000+ commits)
+   - Updates `ImportStatus` to mark `git_import_complete = true` when finished
+
+3. **Subsequent Runs** (if `git_import_complete = true`):
+   - Skips the full commit import
+   - Processes specific file/folder paths for detailed analysis:
+     - `src/policy`
+     - `src/consensus`
+     - `src/rpc/mempool.cpp`
+   - Stores folder-level commit statistics in `FileDetailRecord` nodes
+
+**Step 4: Monitor Progress**
+
+You can monitor the import progress by:
+
+1. **Backend Logs**:
+   ```bash
+   docker compose logs -f backend
+   ```
+   Look for messages like:
+   - `"Import Process Status Result: {'git_import_complete': False, ...}"`
+   - `"Performing initial data import..."`
+   - `"Processed X commits into Neo4j."`
+
+2. **Neo4j Browser** (http://localhost:7474):
+   - Run queries to check node counts:
+   ```cypher
+   MATCH (a:Actor) RETURN count(a) as actors
+   MATCH (c:Commit) RETURN count(c) as commits
+   ```
+
+**Step 5: Verify Import Success**
+
+Once processing completes, verify the data:
+
+1. **Check the response**: The endpoint returns "Processing Git Data is Complete"
+
+2. **Query via GraphQL** (http://localhost/api/graphql):
+   ```graphql
+   query {
+     actors {
+       name
+       email
+     }
+   }
+   ```
+
+3. **Check Neo4j directly**:
+   ```cypher
+   MATCH (a:Actor)-[:AUTHORED]->(c:Commit)
+   RETURN a.name, count(c) as commits
+   ORDER BY commits DESC
+   LIMIT 10
+   ```
+
+#### Expected Processing Times
+
+- **Small repository** (< 1,000 commits): 1-5 minutes
+- **Medium repository** (1,000-10,000 commits): 5-30 minutes
+- **Large repository** (10,000+ commits, like Bitcoin Core): 30 minutes - 2+ hours
+
+**Note**: Processing time depends on:
+- Number of commits in the repository
+- Number of unique authors/committers
+- System resources (CPU, memory, disk I/O)
+
+#### Troubleshooting First-Time Setup
+
+**Issue: "fatal: not a git repository"**
+- Ensure `data/user_supplied_repo/` contains a valid git repository
+- Check that the repository was cloned before starting Docker
+- Verify the Docker volume mount: `docker exec backend ls -la /app/bitcoin`
+
+**Issue: Processing endpoint times out (504 error)**
+- This is normal for large repositories - the import is still running
+- Check backend logs: `docker compose logs -f backend`
+- The process continues even if the HTTP request times out
+- Wait for the "Processed X commits" message in logs
+
+**Issue: Neo4j connection errors**
+- Verify Neo4j is healthy: `docker compose ps`
+- Check Neo4j logs: `docker compose logs neo4j`
+- Ensure Neo4j health check passed before backend started
+
+**Issue: No data appears in GraphQL queries**
+- Verify the import completed successfully (check backend logs)
+- Check Neo4j browser to see if nodes exist
+- Ensure you're querying the correct GraphQL endpoint
+
+#### Next Steps After Initial Import
+
+Once the initial import is complete:
+
+1. **Explore the GraphQL API**: Visit `http://localhost/api/graphql` for the GraphiQL interface
+2. **Query repository data**: Use GraphQL queries to explore actors, commits, and relationships
+3. **Access the frontend**: Visit `http://localhost/` to see the web interface
+4. **Re-run processing**: Subsequent calls to `/process_git_data_to_neo4j/` will process additional file paths (if configured)
+
+The system is now ready to analyze your repository's development history and peer review patterns!
