@@ -25,7 +25,7 @@ def process_commit(db: Neo4jDriver, commit: Commit):
     db.merge_commit_step(commit, committer_node, author_node, co_author_nodes)
 
 def process_git_data():
-    repo = Repo(config.LOCAL_REPO_PATH)
+    repo = Repo(config.CONTAINER_SIDE_REPOSITORY_PATH)
     db = Neo4jDriver()
     status_flag = db.merge_import_status()
     print("Import Process Status Result:", status_flag)
