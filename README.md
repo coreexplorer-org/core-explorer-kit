@@ -159,11 +159,12 @@ The repository path is referenced in several places:
    ```
    The git processor uses this path to initialize the GitPython `Repo` object for processing commits.
 
-3. **`backend/app/schema.py`** (Line 142):
+3. **`backend/app/schema.py`** (Line 144):
    ```python
-   gitfame.main(['-t', f"./bitcoin/{folder}", '--format=json', '--show-email'])
+   repo_path = os.path.join(config.CONTAINER_SIDE_REPOSITORY_PATH, folder)
+   gitfame.main(['-t', repo_path, '--format=json', '--show-email'])
    ```
-   ⚠️ **Note**: The GraphQL `fame` resolver uses a hardcoded path `./bitcoin/` relative to the container's working directory. This assumes the repository is mounted at `/app/bitcoin` and the working directory is `/app`, making the relative path `./bitcoin/` resolve correctly.
+   The GraphQL `fame` resolver uses the configuration variable to construct the repository path dynamically, ensuring consistency across the codebase.
 
 #### Setting Up the Repository Path
 
@@ -183,11 +184,11 @@ The repository path is referenced in several places:
 3. The repository structure should be:
    ```
    data/user_supplied_repo/
-   ├── .git/
-   ├── src/
-   ├── CMakeLists.txt
-   └── ... (other repository files)
+   ├── .git/              # Required: Git metadata directory
+   └── ... (repository files and directories)
    ```
+   
+   **Note**: Core Explorer only requires a valid git repository with a `.git` directory. The specific files and structure of the repository are not important - any git repository will work.
 
 4. When Docker starts, this maps to `/app/bitcoin/` inside the container, which matches `config.CONTAINER_SIDE_REPOSITORY_PATH`.
 
@@ -221,10 +222,6 @@ If you need to use a different container path:
    CONTAINER_SIDE_REPOSITORY_PATH = "/app/your_repo_name"
    ```
 
-3. Update `backend/app/schema.py` (Line 142) to match:
-   ```python
-   gitfame.main(['-t', f"./your_repo_name/{folder}", '--format=json', '--show-email'])
-   ```
 
 #### Important Notes
 
@@ -239,7 +236,7 @@ If you need to use a different container path:
   - At least one commit
   - Readable by the container user (typically root or the user specified in Dockerfile)
 
-- **Path in GraphQL**: The `fame` resolver in `schema.py` uses a hardcoded relative path `./bitcoin/`. If you change the repository path, you must also update this hardcoded reference.
+- **Path in GraphQL**: The `fame` resolver in `schema.py` uses `config.CONTAINER_SIDE_REPOSITORY_PATH` to construct paths dynamically, so it automatically adapts to any repository path configuration.
 
 #### Troubleshooting Repository Path Issues
 
@@ -254,8 +251,9 @@ If you need to use a different container path:
 - Ensure the volume mount path in `docker-compose.yml` is correct
 
 **GraphQL `fame` query fails**
-- Check that the hardcoded path in `schema.py` line 142 matches your repository mount point
-- Verify the folder path parameter is relative to the repository root (e.g., `"src/policy"` not `"/app/bitcoin/src/policy"`)
+- Verify that `CONTAINER_SIDE_REPOSITORY_PATH` in `config.py` matches your Docker mount destination
+- Check that the folder path parameter is relative to the repository root (e.g., `"src/policy"` not `"/app/bitcoin/src/policy"`)
+- Ensure the repository is properly mounted and accessible at the configured path
 
 #### Repository Path in Processing Pipeline
 
@@ -263,7 +261,7 @@ When processing git data:
 
 1. **Initial Import**: `process_git_data()` in `git_processor.py` reads from `config.CONTAINER_SIDE_REPOSITORY_PATH` to get all commits
 2. **File-Level Analysis**: `find_relevant_commits()` uses `repo.iter_commits(paths=folder_or_file_path)` where paths are relative to the repository root
-3. **GraphQL Queries**: The `fame` resolver uses `gitfame` with paths relative to the repository root
+3. **GraphQL Queries**: The `fame` resolver constructs paths using `os.path.join(config.CONTAINER_SIDE_REPOSITORY_PATH, folder)` and passes them to `gitfame`, where the folder parameter is relative to the repository root
 
 All paths used in the codebase should be relative to the repository root (e.g., `"src/policy"`, `"src/consensus"`), not absolute container paths.
 
