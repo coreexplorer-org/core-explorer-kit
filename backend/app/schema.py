@@ -6,6 +6,7 @@ import json
 import io
 import gitfame
 from contextlib import redirect_stdout
+from git_processor import import_bitcoin_path, find_bitcoin_relevant_commits
 
 
 class FameDetail(graphene.ObjectType):
@@ -49,15 +50,43 @@ class Actor(graphene.ObjectType):
     authored_commits = graphene.List(Commit)
     committed_commits = graphene.List(Commit)
 
+class RelevantCommits(graphene.ObjectType):
+    """Summary metrics for commits relevant to a folder or file path."""
+    master_sha_at_collection = graphene.String()
+    file_paths = graphene.String()  # raw string or could be List; keeping simple
+    length_of_unique_authors = graphene.Int()
+    unique_author_names = graphene.List(graphene.String)
+    length_of_all_commits = graphene.Int()
+
 
 class Query(graphene.ObjectType):
+
+    relevant_commits = graphene.Field(
+        RelevantCommits,
+        folder_or_file_path=graphene.String(required=True),
+        description="Return summary statistics for commits touching the given folder or file path",
+    )
+
+    def resolve_relevant_commits(self, info, folder_or_file_path):
+        """Call the utility that gathers commit relevance metrics for the given path."""
+        data = find_bitcoin_relevant_commits(folder_or_file_path)
+        if not data:
+            return None
+        return RelevantCommits(
+            master_sha_at_collection=data["master_sha_at_collection"],
+            file_paths=data["file_paths"],
+            length_of_unique_authors=data["length_of_unique_authors"],
+            unique_author_names=data["unique_author_names"],
+            length_of_all_commits=data["length_of_all_commits"],
+        )
+
 
     github_organizations = graphene.List(GithubOrganization, description="List all organizations")
 
     
     def resolve_organizations(self, info):
         db = Neo4jDriver()
-        orgs = db.get_all_organizations()
+        orgs = db.get_all_github_organizations()
         db.close()
         return [GithubOrganization(**org) for org in orgs]
 
@@ -197,9 +226,26 @@ class CreateGithubRepository(graphene.Mutation):
         db.close()
         return CreateGithubRepository(github_repository=GithubRepository(name=repo["name"], url=repo["url"], description=repo["description"]))
 
+class ImportBitcoinPath(graphene.Mutation):
+    """Queue a job to import data from a specific Bitcoin source path."""
+
+    class Arguments:
+        path = graphene.String(required=True)
+
+    result = graphene.Boolean()
+
+    def mutate(self, info, path):
+
+        import_bitcoin_path(path)
+
+        return ImportBitcoinPath(result=True)
+
+
+
 class Mutation(graphene.ObjectType):
     create_github_organization = CreateGithubOrganization.Field()
     create_github_repository = CreateGithubRepository.Field()
+    import_bitcoin_path = ImportBitcoinPath.Field()
 
 schema = graphene.Schema(query=Query, mutation=Mutation)
 ma = graphene.Schema(query=Query)
