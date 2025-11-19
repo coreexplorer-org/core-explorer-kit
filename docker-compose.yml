@@ -7,6 +7,9 @@ services:
       - "7687:7687"  # Bolt protocol
     environment:
       - NEO4J_AUTH=neo4j/password  # Set initial username/password # TODO Get this from ENV file
+      - NEO4JLABS_PLUGINS=["graph-data-science", "apoc"]
+      - NEO4J_dbms_security_procedures_whitelist=gds.*, apoc.*
+      - NEO4J_dbms_security_procedures_unrestricted=gds.*, apoc.*
     volumes:
       - ./data/neo4j:/data  # Persist data in project folder
     restart: unless-stopped
