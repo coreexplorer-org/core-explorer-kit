@@ -49,9 +49,19 @@ def process_git_data():
 
     return
 
+def import_bitcoin_path(folder_path):
+    repo = Repo(config.LOCAL_REPO_PATH)
+    db = Neo4jDriver()
+    process_path_into_db(repo, db, folder_path)
+
 def process_path_into_db(repo, db:Neo4jDriver, folder_path):
     relevant_data = find_relevant_commits(repo, folder_path)
     db.insert_folder_level_details(relevant_data)
+
+
+def find_bitcoin_relevant_commits(folder_or_file_path):
+    repo = Repo(config.LOCAL_REPO_PATH)
+    return find_relevant_commits(repo, folder_or_file_path)
 
 def find_relevant_commits(repo, folder_or_file_path):
 # Get the list of commits for the specific folder path

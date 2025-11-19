@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Core Explorer</title>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+:root {
+    --bs-body-bg: #1a1a1a;
+    --bs-body-color: #f7931a;
+    --bs-font-monospace: 'Courier New', monospace;
+    --bs-primary: #f7931a;
+    --bs-primary-rgb: 247, 147, 26;
+    --bs-secondary: #2d2d2d;
+    --bs-tertiary-bg: #1f1f1f;
+    --bs-link-hover-color: #e07b00;
+    --bs-border-color: #f7931a;
+    --bs-border-radius: 5px;
+    --bs-border-radius-sm: 3px;
+    --bs-button-border-radius: 3px;
+    --bs-focus-ring-color: rgba(247, 147, 26, 0.5);
+}
+body.light-mode {
+    --bs-body-bg: #ffffff;
+    --bs-body-color: #000000;
+    --bs-primary: #007bff;
+    --bs-primary-rgb: 0, 123, 255;
+    --bs-secondary: #f8f9fa;
+    --bs-tertiary-bg: #e9ecef;
+    --bs-link-hover-color: #0056b3;
+    --bs-border-color: #000000;
+    --bs-focus-ring-color: rgba(0, 123, 255, 0.5);
+}
+body {
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    font-family: var(--bs-font-monospace);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+.box {
+    background-color: var(--bs-secondary);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 10px;
+    box-shadow: 0 0 8px rgba(var(--bs-primary-rgb), 0.3);
+}
+body.light-mode .box {
+    border: 2px solid var(--bs-border-color);
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
+}
+h1, h2, h3, h4, h5, h6 {
+    color: var(--bs-body-color);
+    font-family: 'Roboto', var(--bs-font-monospace);
+    font-weight: 700;
+}
+.navbar {
+    padding: 5px 10px;
+}
+.navbar-brand {
+    display: flex;
+    align-items: center;
+    color: var(--bs-body-color) !important;
+    font-family: var(--bs-font-monospace);
+}
+.navbar-brand:hover {
+    color: var(--bs-link-hover-color) !important;
+}
+.navbar-brand-text {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    font-size: 1em;
+}
+.navbar-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+.cek-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: contain;
+    margin-right: 10px;
+}
+.navbar-nav {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+.nav-link {
+    color: var(--bs-body-color) !important;
+    font-size: 1em;
+    padding: 6px 8px;
+    line-height: 1.5;
+    border: none;
+    border-radius: var(--bs-border-radius-sm);
+    margin: 0 2px;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+.nav-link:hover {
+    color: var(--bs-link-hover-color) !important;
+    background-color: #555;
+}
+body.light-mode .nav-link:hover {
+    background-color: #bbb;
+}
+.theme-toggle-btn {
+    background: none;
+    border: none;
+    border-radius: var(--bs-border-radius-sm);
+    color: #ffc107;
+    font-size: 1em;
+    padding: 6px 8px;
+    line-height: 1.5;
+    cursor: pointer;
+    transition: color 0.3s, background-color 0.3s;
+    margin: 0 2px;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+.theme-toggle-btn:hover {
+    color: var(--bs-link-hover-color);
+    background-color: #555;
+}
+body.light-mode .theme-toggle-btn:hover {
+    background-color: #bbb;
+}
+.search-bar {
+    background-color: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-sm);
+    color: var(--bs-body-color);
+    font-family: var(--bs-font-monospace);
+    padding: 6px 8px;
+    font-size: 1em;
+    line-height: 1.5;
+    width: 200px;
+}
+.search-bar:focus {
+    outline: none;
+    border-color: var(--bs-primary);
+    box-shadow: 0 0 5px rgba(var(--bs-primary-rgb), 0.5);
+}
+.search-btn {
+    background: none;
+    border: none;
+    border-radius: var(--bs-border-radius-sm);
+    color: var(--bs-body-color);
+    padding: 6px 8px;
+    font-size: 1em;
+    line-height: 1.5;
+    cursor: pointer;
+    transition: color 0.3s, background-color 0.3s;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.search-btn:hover {
+    color: var(--bs-link-hover-color);
+    background-color: #555;
+}
+body.light-mode .search-btn:hover {
+    background-color: #bbb;
+}
+footer {
+    margin-top: auto;
+    padding: 10px 0;
+    text-align: center;
+}
+footer .navbar-nav {
+    justify-content: center;
+}
+.content-container {
+    margin-top: 10px;
+    flex: 1;
+}
+.project-section {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+    flex-direction: column;
+}
+.project-profile {
+    display: flex;
+    justify-content: center;
+    flex: 1;
+    margin-bottom: 15px;
+}
+.project-details {
+    text-align: center;
+}
+.project-details h3 {
+    margin: 0;
+    font-size: 1.5em;
+}
+.project-details p {
+    margin: 5px 0 0;
+    font-size: 0.9em;
+}
+.stat-table {
+    margin-left: auto;
+    margin-bottom: 15px;
+}
+.stat-table table {
+    border-collapse: collapse;
+    width: 100%;
+}
+.stat-table th, .stat-table td {
+    padding: 8px;
+    font-size: 1em;
+}
+.stat-table th {
+    text-align: left;
+}
+.stat-table td {
+    text-align: right;
+    font-weight: bold;
+    font-size: 1.2em;
+}
+.stat-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 1em;
+    margin-bottom: 15px;
+    padding: 10px;
+}
+.stat-item {
+    display: inline-flex;
+    align-items: center;
+}
+.stat-label {
+    font-size: 1em;
+}
+.stat-value {
+    font-size: 1.2em;
+    font-weight: bold;
+    margin-left: 5px;
+}
+.stat-divider {
+    margin: 0 10px;
+    color: var(--bs-body-color);
+}
+.graphic-placeholder {
+    height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-sm);
+    font-size: 1em;
+    text-align: center;
+    padding: 10px;
+    margin-bottom: 15px;
+}
+.nav-link i {
+    font-size: 1em;
+    vertical-align: middle;
+}
+@media (min-width: 600px) {
+    .container {
+        max-width: 1200px;
+    }
+    .cek-logo {
+        width: 48px;
+        height: 48px;
+    }
+    .navbar-brand-text {
+        font-size: 1.2em;
+    }
+    .nav-link, .theme-toggle-btn, .search-btn {
+        font-size: 1em;
+    }
+    .search-bar {
+        width: 250px;
+    }
+}
+@media (min-width: 992px) {
+    .navbar-nav {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+    }
+    .search-container {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+    }
+    .navbar-top {
+        flex: 1;
+    }
+    .stat-table {
+        display: none;
+    }
+    .stat-row {
+        display: flex;
+    }
+    .blog-card {max-width: 800px; margin-left: auto; margin-right: auto}
+    .card.view-card {max-width: 400px; margin-left: auto; margin-right: auto}
+    .content-container h1 {font-size: 2.5em}
+    .content-container p {font-size: 1.2em}
+}
+@media (max-width: 991px) {
+    .project-section {
+        align-items: flex-start;
+    }
+    .project-profile {
+        margin-bottom: 15px;
+    }
+    .stat-table {
+        margin: 0;
+        width: 100%;
+        max-width: 100%;
+    }
+    .navbar-brand-text {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .search-container {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 5px;
+        width: 100%;
+    }
+    .search-bar {
+        width: calc(100% - 36px);
+    }
+    .search-btn {
+        width: 32px;
+        margin-left: 4px;
+    }
+    .stat-row {
+        display: none;
+    }
+}
+@media (max-width: 575px) {
+    .project-details h3 {
+        font-size: 1.2em;
+    }
+    .project-details p {
+        font-size: 0.8em;
+    }
+    .stat-table th, .stat-table td {
+        font-size: 0.9em;
+    }
+    .stat-table td {
+        font-size: 1em;
+    }
+    .search-bar {
+        font-size: 0.9em;
+    }
+    .view-card {margin-bottom: 15px}
+}
+@media (max-width: 767px) {
+    .blog-card-thumbnail {height:100px}
+    .blog-card-content h6 {font-size:0.9em}
+    .blog-card-content p {font-size:0.8em}
+}
+.separator-line{width:80%;margin:20px auto;border-top:1px solid #ccc}.blog-posts ul{list-style:none;padding:0}.blog-posts li{margin-bottom:10px}.card-img-top{position: relative; padding-top: 75%; overflow: hidden; display: block}.card-img-top img {position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block}
+.blog-posts{text-align:center}.blog-card{margin-bottom:15px}.blog-card-content{display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 15px; height: 100%; text-align: center}.blog-card-content h6{margin:0 0 5px;font-size:1em}.blog-card-content p{margin:0;font-size:0.9em}
+.blog-card-thumbnail {position: relative; padding-top: 75%; overflow: hidden}
+.blog-card-thumbnail i {position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 3em; color: var(--bs-body-color); background-color: var(--bs-tertiary-bg); width: 100%; height: 100%; display: flex; align-items: center; justify-content: center}
+body.light-mode .blog-card-thumbnail i {color: #666; background-color: #ddd}
+body:not(.light-mode) .card {background-color: var(--bs-secondary); border-color: var(--bs-border-color); box-shadow: 0 0 8px rgba(var(--bs-primary-rgb), 0.3)}
+body:not(.light-mode) .card-img-top {background-color: var(--bs-tertiary-bg); color: var(--bs-body-color)}
+body:not(.light-mode) .btn-primary {background-color: var(--bs-secondary); border-color: var(--bs-border-color); color: var(--bs-body-color); box-shadow: 0 0 5px rgba(var(--bs-primary-rgb), 0.3)}
+body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); border-color: var(--bs-primary); color: var(--bs-body-color)}
+body:not(.light-mode) .blog-card-thumbnail {background-color: var(--bs-tertiary-bg); color: var(--bs-body-color)}
+body:not(.light-mode) .blog-card-content h6 a {color: var(--bs-body-color)}
+body:not(.light-mode) .blog-card-content h6 a:hover {color: var(--bs-link-hover-color)}
+body:not(.light-mode) .separator-line {border-top-color: var(--bs-border-color)}
+.view-card a {text-decoration: none; color: inherit}
+.view-card a:hover {text-decoration: none; color: var(--bs-link-hover-color)}
+  </style>
+</head>
+<body class="light-mode">
+  <nav class="navbar navbar-expand-lg navbar-dark box" id="navbar">
+    <div class="navbar-top">
+      <a class="navbar-brand" href="#">
+        <img src="https://i.imgur.com/0cx91au.png" alt="Core Explorer Logo" class="cek-logo">
+        <span class="navbar-brand-text">
+          <span>Core</span>
+          <span>Explorer</span>
+        </span>
+      </a>
+      <ul class="navbar-nav">
+        <li class="nav-item"><a class="nav-link" href="https://github.com/coreexplorer-org"><i class="fab fa-github"></i></a></li>
+        <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-envelope"></i></a></li>
+        <li class="nav-item">
+          <button class="theme-toggle-btn" id="theme-toggle-header"><i class="fas fa-moon"></i></button>
+        </li>
+      </ul>
+    </div>
+    <div class="search-container">
+      <input type="text" class="search-bar" placeholder="Search...">
+      <button class="search-btn"><i class="fas fa-search"></i></button>
+    </div>
+  </nav>
+
+  <div class="container-fluid content-container box">
+    <div class="row">
+      <div class="col-12 text-center">
+        <h1>Welcome to Core Explorer!</h1>
+        <p>A data science visualizer for the Bitcoin Core repository.</p>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col-md-4">
+        <a href="project.html">
+          <div class="card view-card">
+            <div class="card-img-top">
+              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAACXBIWXMAAAsTAAALEwEAmpwYAAABJUlEQVR4nO3SMQ2AQBAEQXr/SSuIu0ABgSFB0F5hbt9hV8gYAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPjvD7wAAdW/dxUAAAAASUVORK5CYII=" alt="Project View Image">
+            </div>
+            <div class="card-body">
+              <h5 class="card-title">Project View</h5>
+            </div>
+          </div>
+        </a>
+      </div>
+      <div class="col-md-4">
+        <a href="profile.html">
+          <div class="card view-card">
+            <div class="card-img-top">
+              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAACXBIWXMAAAsTAAALEwEAmpwYAAABJUlEQVR4nO3SMQ2AQBAEQXr/SSuIu0ABgSFB0F5hbt9hV8gYAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPjvD7wAAdW/dxUAAAAASUVORK5CYII=" alt="Actor View Image">
+            </div>
+            <div class="card-body">
+              <h5 class="card-title">Actor View</h5>
+            </div>
+          </div>
+        </a>
+      </div>
+      <div class="col-md-4">
+        <a href="file.html">
+          <div class="card view-card">
+            <div class="card-img-top">
+              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAACXBIWXMAAAsTAAALEwEAmpwYAAABJUlEQVR4nO3SMQ2AQBAEQXr/SSuIu0ABgSFB0F5hbt9hV8gYAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPjvD7wAAdW/dxUAAAAASUVORK5CYII=" alt="File View Image">
+            </div>
+            <div class="card-body">
+              <h5 class="card-title">File View</h5>
+            </div>
+          </div>
+        </a>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col-12">
+        <hr class="separator-line">
+      </div>
+    </div>
+    <div class="row">
+      <div class="col-12">
+        <div class="blog-posts">
+          <h3>Latest Blog Posts</h3>
+          <div id="blog-posts-container"></div>
+          <a href="https://blog.coreexplorer.org/" class="btn btn-primary">Read more</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <ul class="navbar-nav">
+      <li class="nav-item"><a class="nav-link" href="https://github.com/coreexplorer-org"><i class="fab fa-github"></i></a></li>
+      <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-envelope"></i></a></li>
+      <li class="nav-item">
+        <button class="theme-toggle-btn" id="theme-toggle-footer"><i class="fas fa-moon"></i></button>
+      </li>
+    </ul>
+  </footer>
+
+  <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+  <script>
+    const elements = {
+      themeToggleHeader: document.getElementById('theme-toggle-header'),
+      themeToggleFooter: document.getElementById('theme-toggle-footer'),
+      navbar: document.getElementById('navbar')
+    };
+    function toggleTheme() {
+      document.body.classList.toggle('light-mode');
+      elements.navbar.classList.toggle('navbar-dark');
+      elements.navbar.classList.toggle('navbar-light');
+      const sunIcon= '<i class="fas fa-moon"></i>';
+      const moonIcon = '<i class="fas fa-sun"></i>';
+      const headerBtn = elements.themeToggleHeader;
+      const footerBtn = elements.themeToggleFooter;
+      if (document.body.classList.contains('light-mode')) {
+        headerBtn.innerHTML = sunIcon;
+        footerBtn.innerHTML = sunIcon;
+      } else {
+        headerBtn.innerHTML = moonIcon;
+        footerBtn.innerHTML = moonIcon;
+      }
+    }
+    elements.themeToggleHeader.addEventListener('click', toggleTheme);
+    elements.themeToggleFooter.addEventListener('click', toggleTheme);
+
+    // Fallback Atom feed data
+    const fallbackFeedData = `
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>https://blog.coreexplorer.org/</id>
+  <title>Core Explorer Org</title>
+  <subtitle>Documenting our efforts to develop tools to ensure the integrity of repositories and maintainers</subtitle>
+  <updated>2025-05-16T15:35:22+00:00</updated>
+  <author>
+    <name>Core Explorer Team</name>
+    <uri>https://blog.coreexplorer.org/</uri>
+  </author>
+  <link rel="self" type="application/atom+xml" href="https://blog.coreexplorer.org/feed.xml"/>
+  <link rel="alternate" type="text/html" hreflang="en" href="https://blog.coreexplorer.org/"/>
+  <generator uri="https://jekyllrb.com/" version="4.4.1">Jekyll</generator>
+  <rights> © 2025 Core Explorer Team </rights>
+  <icon>/assets/img/favicons/favicon.ico</icon>
+  <logo>/assets/img/favicons/favicon-96x96.png</logo>
+  <entry>
+    <title>Core Explorer @ BTC++ Austin</title>
+    <link href="https://blog.coreexplorer.org/posts/core-explorer-btc-austin/" rel="alternate" type="text/html" title="Core Explorer @ BTC++ Austin"/>
+    <published>2025-05-16T15:25:00+00:00</published>
+    <updated>2025-05-16T15:25:00+00:00</updated>
+    <id>https://blog.coreexplorer.org/posts/core-explorer-btc-austin/</id>
+    <content type="text/html" src="https://blog.coreexplorer.org/posts/core-explorer-btc-austin/"/>
+    <author>
+      <name>Core Explorer Team</name>
+    </author>
+    <summary>Our Adventure at the btc++ Conference Hackathon in Austin As we reflect on our experience at the btc++ conference hackathon in Austin, we can’t help but feel a sense of excitement and accomplishment. The conference, which drew a very high-signal audience, i would guess 200+ attendees. The Palmer Event Center provided the perfect backdrop for our team of three to come together and hack on the C...</summary>
+  </entry>
+  <entry>
+    <title>How could we analyze commit history?</title>
+    <link href="https://blog.coreexplorer.org/posts/how-could-we-analyze-commit-history/" rel="alternate" type="text/html" title="How could we analyze commit history?"/>
+    <published>2025-05-05T21:33:00+00:00</published>
+    <updated>2025-05-05T21:33:00+00:00</updated>
+    <id>https://blog.coreexplorer.org/posts/how-could-we-analyze-commit-history/</id>
+    <content type="text/html" src="https://blog.coreexplorer.org/posts/how-could-we-analyze-commit-history/"/>
+    <author>
+      <name>Core Explorer Team</name>
+    </author>
+    <summary>Examples of ways to analyze commit history: who reviews who? who gets the most reviews? who gets the least reviews? does anybody merge their own changes? when Alice is reviewing, are they typically giving positive or negative reviews for everybody, or do they express preference to some contributors over others? when Bob is committing co...</summary>
+  </entry>
+  <entry>
+    <title>Exploring the Explorers</title>
+    <link href="https://blog.coreexplorer.org/posts/exploring-the-explorers/" rel="alternate" type="text/html" title="Exploring the Explorers"/>
+    <published>2025-05-05T15:29:00+00:00</published>
+    <updated>2025-05-05T20:13:25+00:00</updated>
+    <id>https://blog.coreexplorer.org/posts/exploring-the-explorers/</id>
+    <content type="text/html" src="https://blog.coreexplorer.org/posts/exploring-the-explorers/"/>
+    <author>
+      <name>Core Explorer Team</name>
+    </author>
+    <summary>Recently, we’ve been discussing how to think about our codebases and how we can improve them to better serve the Bitcoin community. Our conversation started with the question “where do we want to go with our codebases?” and led to an explanation of our current projects, which was the input to this post: repo_explore, vibe_explor, and repex. Each of these codebases has addressed a certain part ...</summary>
+  </entry>
+  <entry>
+    <title>Preparing Core Explorer for some more attention</title>
+    <link href="https://blog.coreexplorer.org/posts/preparing-core-explorer-for-some-more-attention/" rel="alternate" type="text/html" title="Preparing Core Explorer for some more attention"/>
+    <published>2025-05-04T20:29:00+00:00</published>
+    <updated>2025-05-05T22:40:01+00:00</updated>
+    <id>https://blog.coreexplorer.org/posts/preparing-core-explorer-for-some-more-attention/</id>
+    <content type="text/html" src="https://blog.coreexplorer.org/posts/preparing-core-explorer-for-some-more-attention/"/>
+    <author>
+      <name>Core Explorer Team</name>
+    </author>
+    <summary>An Introductory Look at Our Tools for Exploring the Bitcoin Repository You can read the About page. But what else? At coreexplorer.org, we’ve been working on tools to provide insights into the Bitcoin repository, fostering transparency and encouraging community involvement. Today, we’d like to give you a detailed look at the three codebases we’ve developed so far: Repo Explorer, Vibe Explore...</summary>
+  </entry>
+  <entry>
+    <title>Workflow To Merge Commits To Bitcoin Core</title>
+    <link href="https://blog.coreexplorer.org/posts/workflow-to-merge-commits-to-bitcoin-core/" rel="alternate" type="text/html" title="Workflow To Merge Commits To Bitcoin Core"/>
+    <published>2024-05-01T00:00:00+00:00</published>
+    <updated>2024-05-01T00:00:00+00:00</updated>
+    <id>https://blog.coreexplorer.org/posts/workflow-to-merge-commits-to-bitcoin-core/</id>
+    <content type="text/html" src="https://blog.coreexplorer.org/posts/workflow-to-merge-commits-to-bitcoin-core/"/>
+    <author>
+      <name>juansgalt</name>
+    </author>
+    <summary></summary>
+  </entry>
+</feed>
+    `;
+
+    // Fetch and display blog posts from Atom feed
+    async function fetchBlogPosts() {
+      const blogContainer = document.getElementById('blog-posts-container');
+      const rssUrl = 'https://blog.coreexplorer.org/feed.xml';
+      const proxyUrl = 'https://corsproxy.io/?';
+      const fullUrl = proxyUrl + encodeURIComponent(rssUrl);
+
+      let xmlDoc;
+      try {
+        const response = await fetch(fullUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        const text = await response.text();
+        const parser = new DOMParser();
+        xmlDoc = parser.parseFromString(text, 'text/xml');
+
+        // Check for parsing errors
+        const parseError = xmlDoc.querySelector('parsererror');
+        if (parseError) {
+          throw new Error('Error parsing Atom feed XML');
+        }
+      } catch (error) {
+        console.error('Error fetching or parsing Atom feed:', error);
+        // Use fallback data if fetch fails
+        const parser = new DOMParser();
+        xmlDoc = parser.parseFromString(fallbackFeedData, 'text/xml');
+      }
+
+      try {
+        // Extract the latest 5 entries
+        const entries = xmlDoc.querySelectorAll('entry');
+        const latestEntries = Array.from(entries).slice(0, 5);
+
+        // Clear the container
+        blogContainer.innerHTML = '';
+
+        // Populate blog posts
+        latestEntries.forEach((entry, index) => {
+          const title = entry.querySelector('title')?.textContent || 'Untitled Post';
+          const link = entry.querySelector('link[rel="alternate"][type="text/html"]')?.getAttribute('href') || '#';
+          const summary = entry.querySelector('summary')?.textContent || 'No summary available.';
+          // Truncate summary to first 100 characters for excerpt
+          const excerpt = summary.length > 100 ? summary.substring(0, 100) + '...' : summary;
+
+          // Create card with alternating layout
+          const cardDiv = document.createElement('div');
+          cardDiv.className = 'card blog-card';
+
+          const rowDiv = document.createElement('div');
+          rowDiv.className = 'row no-gutters';
+
+          const thumbnailDiv = document.createElement('div');
+          thumbnailDiv.className = index % 2 === 0 ? 'col-md-6' : 'col-md-6 order-md-2';
+          const thumbnailInnerDiv = document.createElement('div');
+          thumbnailInnerDiv.className = 'blog-card-thumbnail';
+          const icon = document.createElement('i');
+          icon.className = 'bi bi-journal';
+          thumbnailInnerDiv.appendChild(icon);
+          thumbnailDiv.appendChild(thumbnailInnerDiv);
+
+          const contentDiv = document.createElement('div');
+          contentDiv.className = index % 2 === 0 ? 'col-md-6' : 'col-md-6 order-md-1';
+          const contentInnerDiv = document.createElement('div');
+          contentInnerDiv.className = 'blog-card-content';
+          const h6 = document.createElement('h6');
+          const a = document.createElement('a');
+          a.href = link;
+          a.textContent = title;
+          h6.appendChild(a);
+          const p = document.createElement('p');
+          p.textContent = excerpt;
+          contentInnerDiv.appendChild(h6);
+          contentInnerDiv.appendChild(p);
+          contentDiv.appendChild(contentInnerDiv);
+
+          rowDiv.appendChild(thumbnailDiv);
+          rowDiv.appendChild(contentDiv);
+          cardDiv.appendChild(rowDiv);
+          blogContainer.appendChild(cardDiv);
+        });
+      } catch (error) {
+        console.error('Error processing Atom feed data:', error);
+        blogContainer.innerHTML = '<p>Unable to load blog posts. Please try again later.</p>';
+      }
+    }
+
+    // Run after DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', fetchBlogPosts);
+  </script>
+</body>
+</html>
