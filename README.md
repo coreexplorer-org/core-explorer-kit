@@ -1,4 +1,4 @@
-#🧰 SETUP INSTRUCTIONS FOR CORE KIT
+# 🧰 SETUP INSTRUCTIONS FOR CORE KIT
 
 ## About Core Explorer
 
@@ -269,7 +269,7 @@ All paths used in the codebase should be relative to the repository root (e.g., 
 
 To get started, clone the necessary repositories in the parent directory.
 
-##📦 Step-by-step
+## 📦 Step-by-step
 Navigate one directory up from your current location
 This ensures you're outside of core kit repo folder:
 
