@@ -24,6 +24,9 @@ services:
     restart: unless-stopped
     volumes:
       - ./data/user_supplied_repo:/app/bitcoin 
+      - ./backend/app:/app  # Mount app code for live reloading
+      - ./backend/wsgi.py:/app/wsgi.py  # Mount wsgi.py separately
+      - ./backend/wsgi.ini:/app/wsgi.ini  # Mount wsgi.ini separately
     depends_on:
       neo4j:
         condition: service_healthy

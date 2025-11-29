@@ -2,3 +2,34 @@ data/
 repex/
 repo_explorer/
 CE_demo/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# WSGI files in app directory (should only be in backend root)
+backend/app/wsgi.py
+backend/app/wsgi.ini
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store

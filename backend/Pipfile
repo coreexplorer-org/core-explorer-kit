@@ -9,6 +9,9 @@ graphene = "*"
 flask-graphql = "*"
 uwsgi = "*"
 psycopg2-binary = "*"
+GitPython = "*"
+neo4j = "*"
+git-fame = "*"
 
 [dev-packages]
 

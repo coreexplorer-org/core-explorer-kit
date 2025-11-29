@@ -5,7 +5,7 @@ from commit_details import CommitDetails
 import config
 import time
 import json
-from git import Repo, Commit, Actor
+from git import Commit, Actor
 import uuid
 
 def uuid4():  ## do we need this? 
@@ -15,7 +15,6 @@ def uuid4():  ## do we need this?
 
 class Neo4jDriver:
     def __init__(self, max_retries=5, retry_delay=2):
-        self.driver = None
         for attempt in range(max_retries):
             try:
                 self.driver = GraphDatabase.driver(
@@ -36,6 +35,20 @@ class Neo4jDriver:
         if self.driver:
             self.driver.close()
 
+    @property
+    def _driver(self):
+        """Property that ensures the driver is initialized before use."""
+        assert self.driver is not None, "Neo4j driver has not been initialized"
+        return self.driver
+
+    @staticmethod
+    def _require_single_record(result, error_message: str):
+        """Helper to extract a single record from a query result, raising an error if None."""
+        record = result.single()
+        if record is None:
+            raise RuntimeError(error_message)
+        return record
+
     def clear_database(self):
         with self.driver.session() as session:
             session.run("MATCH (n) DETACH DELETE n")
@@ -43,10 +56,15 @@ class Neo4jDriver:
 
     def create_node(self, label, properties):
         with self.driver.session() as session:
+            # Validate label to prevent injection (alphanumeric and underscores only)
+            if not label.replace("_", "").isalnum():
+                raise ValueError(f"Invalid label: {label}. Labels must contain only alphanumeric characters and underscores.")
             query = f"MERGE (n:{label} $props) RETURN n"
-            result = session.run(query, props=properties)
-            return result.single()["n"]
+            result = session.run(query, props=properties)  # type: ignore[arg-type]
+            record = self._require_single_record(result, f"Failed to create or retrieve node with label {label}")
+            return record["n"]
     
+    @staticmethod
     def tx_insert_actor(tx, actor) -> str:
         result = tx.run("""
             MERGE (a: Actor {name: $name, email: $email})
@@ -55,7 +73,8 @@ class Neo4jDriver:
             name=actor.name,
             email=actor.email
         )
-        return result.single()["email"]
+        record = Neo4jDriver._require_single_record(result, f"Failed to create or retrieve actor {actor.name}")
+        return record["email"]
 
     def merge_actor(self, actor: Actor) -> Actor:
         with self.driver.session() as session:
@@ -64,14 +83,16 @@ class Neo4jDriver:
             RETURN elementId(a)
             """
             result = session.run(query, name=actor.name, email=actor.email)
-            return result.single()["elementId(a)"]
+            record = self._require_single_record(result, "Failed to create or retrieve node with label Actor")
+            return record["elementId(a)"]
 
     def merge_actor_node(self, properties) -> Record:
         with self.driver.session() as session:
             query = "MERGE (n:Actor {name: $props.name, email: $props.email}) RETURN n"
             result = session.run(query, props=properties)
             print(f"merge actor ${properties.name}")
-            return result.single()
+            record = self._require_single_record(result, "Failed to create or retrieve node with label Actor")
+            return record["n"]
         
     def add_commit(self, author_props, commit_props):
         # breakpoint()
@@ -155,7 +176,8 @@ class Neo4jDriver:
                 slug=slug,
                 name=name
             )
-            return result.single()["o"]
+            record = self._require_single_record(result, "Failed to create or retrieve node with label GithubOrganization")
+            return record["o"]
 
     def merge_github_repository(self, org_slug: str, name: str, url: str, description: str = ""):
         with self.driver.session() as session:
@@ -172,7 +194,8 @@ class Neo4jDriver:
                 url=url,
                 description=description
             )
-            return result.single()["r"]
+            record = self._require_single_record(result, "Failed to create or retrieve node with label GithubRepository")
+            return record["r"]
 
     def get_all_github_repositories(self):
         with self.driver.session() as session:
@@ -241,7 +264,7 @@ class Neo4jDriver:
         return record["file_detail_record"]
     
     def merge_import_status(self):
-        with self.driver.session() as session:
+        with self._driver.session() as session:
             result = session.execute_write(self._merge_import_status_node)
             return result
 
@@ -268,7 +291,7 @@ class Neo4jDriver:
     def merge_commit_step(self, commit: Commit, committer_node: str, author_node: str, co_author_nodes: list[str]):
         # print('commit merge processing')
         commit_details = CommitDetails(commit)
-        self.driver.execute_query(
+        self._driver.execute_query(
             "match (committer), (author)"
             "where elementId(author) = $author_id "
             "and elementId(committer) = $committer_id "
@@ -291,7 +314,7 @@ class Neo4jDriver:
               )
 
     def merge_get_import_status_node(self):
-        with self.driver.session() as session:
+        with self._driver.session() as session:
             result = session.execute_write(self._create_and_return_import_status_node)
             return result
 
@@ -310,16 +333,3 @@ class Neo4jDriver:
             "git_import_complete": record["a.git_import_complete"],
             "next_complete": record["a.next_complete"]
         }
-
-if __name__ == "__main__":
-    db = Neo4jDriver()
-    # db.clear_database() # TODO make it clear again
-
-    # Example usage: Process a repository
-    repo_path = "downloaded_repo"  # Path to the local repository
-    repo = Repo(repo_path)
-
-    for commit in repo.iter_commits():
-        db.merge_commit(commit)
-
-    db.close()
