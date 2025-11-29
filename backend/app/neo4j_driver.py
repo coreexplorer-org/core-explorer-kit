@@ -310,16 +310,3 @@ class Neo4jDriver:
             "git_import_complete": record["a.git_import_complete"],
             "next_complete": record["a.next_complete"]
         }
-
-if __name__ == "__main__":
-    db = Neo4jDriver()
-    # db.clear_database() # TODO make it clear again
-
-    # Example usage: Process a repository
-    repo_path = "downloaded_repo"  # Path to the local repository
-    repo = Repo(repo_path)
-
-    for commit in repo.iter_commits():
-        db.merge_commit(commit)
-
-    db.close()
