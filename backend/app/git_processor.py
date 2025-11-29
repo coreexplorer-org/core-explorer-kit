@@ -1,5 +1,9 @@
 # src/git_processor.py
-from git import Repo, Commit, Actor
+from __future__ import annotations
+
+from typing import Iterable, Sequence
+
+from git import Repo, Commit
 import config
 from neo4j_driver import Neo4jDriver
 
@@ -16,43 +20,52 @@ def process_commit(db: Neo4jDriver, commit: Commit):
 
     committer_node = db.merge_actor(committer)
     author_node = db.merge_actor(author)
-    co_author_nodes = list()
+    co_author_nodes: list[str] = []
     for co_author in co_authors:
-        # breakpoint()
-
-        co_author_nodes.extend(db.merge_actor(co_author))
+        co_author_nodes.append(db.merge_actor(co_author))
 
     db.merge_commit_step(commit, committer_node, author_node, co_author_nodes)
 
-def process_git_data():
-    repo = Repo(config.CONTAINER_SIDE_REPOSITORY_PATH)
-    db = Neo4jDriver()
+def process_git_data(
+    repo_path: str | None = None,
+    neo4j_driver: Neo4jDriver | None = None,
+    folder_paths: Sequence[str] | None = None,
+    commit_limit: int | None = None,
+):
+    repo = Repo(repo_path or config.CONTAINER_SIDE_REPOSITORY_PATH)
+    db = neo4j_driver or Neo4jDriver()
+    should_close_driver = neo4j_driver is None
     status_flag = db.merge_import_status()
     print("Import Process Status Result:", status_flag)
-    # db.clear_database()
-
 
     if not status_flag['git_import_complete']:
-        commits = find_commits_in_repo(repo)
+        commits = find_commits_in_repo(repo, limit=commit_limit)
         print("Performing initial data import...")
         initial_process_commits_into_db(db, commits)
         db.merge_get_import_status_node()
     else:
         print("Skipping initial data import.")
-        # TODO: try for file details import
-        folder_path = "src/policy"
-        # folder_path = "src/policy/ephemeral_policy.cpp"
-        process_path_into_db(repo, db, folder_path)
-        process_path_into_db(repo, db, 'src/consensus')
-        process_path_into_db(repo, db, 'src/rpc/mempool.cpp')
-        # breakpoint()
+
+        default_paths: Sequence[str] = (
+            "src/policy",
+            "src/consensus",
+            "src/rpc/mempool.cpp",
+        )
+        active_paths = default_paths if folder_paths is None else folder_paths
+        for path in active_paths:
+            process_path_into_db(repo, db, path)
+
+    if should_close_driver:
+        db.close()
 
     return
 
-def import_bitcoin_path(folder_path):
-    repo = Repo(config.CONTAINER_SIDE_REPOSITORY_PATH)
-    db = Neo4jDriver()
+def import_bitcoin_path(folder_path, repo_path: str | None = None, neo4j_driver: Neo4jDriver | None = None):
+    repo = Repo(repo_path or config.CONTAINER_SIDE_REPOSITORY_PATH)
+    db = neo4j_driver or Neo4jDriver()
     process_path_into_db(repo, db, folder_path)
+    if neo4j_driver is None:
+        db.close()
 
 def process_path_into_db(repo, db:Neo4jDriver, folder_path):
     relevant_data = find_relevant_commits(repo, folder_path)
@@ -100,10 +113,13 @@ def find_relevant_commits(repo, folder_or_file_path):
     return result
 
 
-def find_commits_in_repo(repo):
-    commits = list(repo.iter_commits())
+def find_commits_in_repo(repo, limit: int | None = None):
+    commits: Iterable[Commit] = repo.iter_commits()
+    commits = list(commits)
     # Start with the first commit ever
     commits.reverse()
+    if limit is not None:
+        commits = commits[:limit]
     return commits
 
 def initial_process_commits_into_db(db: Neo4jDriver, commits):
@@ -111,8 +127,6 @@ def initial_process_commits_into_db(db: Neo4jDriver, commits):
     for commit in commits:
         process_commit(db, commit)
     print(f"Processed {len(commits)} commits into Neo4j.")
-    
-    db.close()
 
 if __name__ == "__main__":
     process_git_data()

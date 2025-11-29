@@ -14,12 +14,21 @@ def uuid4():  ## do we need this?
 
 
 class Neo4jDriver:
-    def __init__(self, max_retries=5, retry_delay=2):
+    def __init__(
+        self,
+        uri: str | None = None,
+        user: str | None = None,
+        password: str | None = None,
+        max_retries: int = 5,
+        retry_delay: int = 2,
+    ):
+        self._uri = uri or config.NEO4J_URI
+        self._auth = (user or config.NEO4J_USER, password or config.NEO4J_PASSWORD)
         for attempt in range(max_retries):
             try:
                 self.driver = GraphDatabase.driver(
-                    config.NEO4J_URI,
-                    auth=(config.NEO4J_USER, config.NEO4J_PASSWORD)
+                    self._uri,
+                    auth=self._auth
                 )
                 self.driver.verify_connectivity()  # Ensure connection works
                 print("Connected to Neo4j successfully.")
@@ -76,7 +85,7 @@ class Neo4jDriver:
         record = Neo4jDriver._require_single_record(result, f"Failed to create or retrieve actor {actor.name}")
         return record["email"]
 
-    def merge_actor(self, actor: Actor) -> Actor:
+    def merge_actor(self, actor: Actor) -> str:
         with self.driver.session() as session:
             query = """
             MERGE (a:Actor {name: $name, email: $email})
@@ -323,8 +332,8 @@ class Neo4jDriver:
         query = """
         MERGE (a:ImportStatus)
         ON CREATE SET 
-          a.git_import_complete = true,
           a.next_complete = false
+        SET a.git_import_complete = true
         RETURN a.git_import_complete, a.next_complete
         """
         result = tx.run(query)
