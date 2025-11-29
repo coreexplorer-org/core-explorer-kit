@@ -4,8 +4,10 @@ from graphql import GraphQLError
 from neo4j_driver import Neo4jDriver  # make sure this is accessible
 import json
 import io
+import os
 import gitfame
 from contextlib import redirect_stdout
+import config
 from git_processor import import_bitcoin_path, find_bitcoin_relevant_commits
 
 
@@ -168,7 +170,8 @@ class Query(graphene.ObjectType):
     def resolve_fame(self, info, folder):
         buf = io.StringIO()
         with redirect_stdout(buf):
-            gitfame.main(['-t', f"./bitcoin/{folder}", '--format=json', '--show-email'])
+            repo_path = os.path.join(config.CONTAINER_SIDE_REPOSITORY_PATH, folder)
+            gitfame.main(['-t', repo_path, '--format=json', '--show-email'])
 
         buf.seek(0)
         raw = json.loads(buf.read())
