@@ -16,6 +16,10 @@ build/
 .coverage
 htmlcov/
 
+# WSGI files in app directory (should only be in backend root)
+backend/app/wsgi.py
+backend/app/wsgi.ini
+
 # Virtual environments
 venv/
 env/
