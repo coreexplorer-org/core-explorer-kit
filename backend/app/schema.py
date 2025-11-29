@@ -45,12 +45,18 @@ class GithubOrganization(graphene.ObjectType):
 class Commit(graphene.ObjectType):
     commit_hash = graphene.String()
     message = graphene.String()
+    summary = graphene.String()
 
 class Actor(graphene.ObjectType):
     name = graphene.String()
     email = graphene.String()
     authored_commits = graphene.List(Commit)
     committed_commits = graphene.List(Commit)
+
+class CommitsOnDate(graphene.ObjectType):
+    date = graphene.String()
+    commits_on_day = graphene.String()
+    commits = graphene.List(Commit)
 
 class RelevantCommits(graphene.ObjectType):
     """Summary metrics for commits relevant to a folder or file path."""
@@ -63,6 +69,17 @@ class RelevantCommits(graphene.ObjectType):
 
 class Query(graphene.ObjectType):
 
+    commits_over_time_for_author = graphene.List(CommitsOnDate, description="List of Commits On Date")
+    def resolve_commits_over_time_for_author(self, info):
+        db = Neo4jDriver()
+        details = db.commits_over_time_for_actor("satoshin@gmx.com")
+        db.close()
+        return [CommitsOnDate(
+            date=detail["date"],
+            commits_on_day=detail["commits_on_day"],
+            commits=[Commit(**commit) for commit in detail["commits"]]
+        ) for detail in details]
+    
     relevant_commits = graphene.Field(
         RelevantCommits,
         folder_or_file_path=graphene.String(required=True),
@@ -85,6 +102,7 @@ class Query(graphene.ObjectType):
 
     github_organizations = graphene.List(GithubOrganization, description="List all organizations")
 
+    github_organizations = graphene.List(GithubOrganization, description="List all organizations")
     
     def resolve_organizations(self, info):
         db = Neo4jDriver()
@@ -149,7 +167,6 @@ class Query(graphene.ObjectType):
             return None
         return GithubOrganization(name=org["name"], slug=org["slug"])
 
-
     github_repository = graphene.Field(GithubRepository, url=graphene.String(required=True))
 
     def resolve_github_repository(self, info, url):
@@ -159,7 +176,6 @@ class Query(graphene.ObjectType):
         if not repo:
             return None
         return GithubRepository(name=repo["name"], url=repo["url"], description=repo.get("description", ""))
-
 
     fame = graphene.Field(
         FameTotal,
@@ -197,7 +213,6 @@ class Query(graphene.ObjectType):
             commits=raw["total"]["commits"],
             contributors=contributors
         )
-
 
 class CreateGithubOrganization(graphene.Mutation):
     class Arguments:
