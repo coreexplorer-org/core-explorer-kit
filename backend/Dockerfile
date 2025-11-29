@@ -2,8 +2,6 @@ FROM python:3.11-alpine
 
 # Install Alpine dependencies
 RUN apk add --no-cache \
-    uwsgi \
-    uwsgi-python3 \
     libffi-dev \
     build-base \
     python3-dev \
@@ -21,13 +19,26 @@ ENV PATH="/root/.local/bin:$PATH"
 
 WORKDIR /app
 
-# Install pipenv
-RUN pip install pipenv flask flask_graphql graphene neo4j GitPython git-fame
+# Install Python packages including uWSGI (use pip to ensure compatibility with base Python)
+RUN pip install --no-cache-dir \
+    uwsgi \
+    pipenv \
+    flask \
+    flask_graphql \
+    graphene \
+    neo4j \
+    GitPython \
+    git-fame
 
 
 # Copy app source
 COPY app .
 
+# Copy WSGI files
+COPY wsgi.py .
+COPY wsgi.ini .
+
 EXPOSE 5000
 
-CMD ["python", "app.py"]
+# Use uWSGI production server instead of Flask dev server
+CMD ["uwsgi", "--ini", "wsgi.ini"]
