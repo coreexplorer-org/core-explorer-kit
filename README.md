@@ -524,3 +524,18 @@ Once the initial import is complete:
 4. **Re-run processing**: Subsequent calls to `/process_git_data_to_neo4j/` will process additional file paths (if configured)
 
 The system is now ready to analyze your repository's development history and peer review patterns!
+
+### Running Backend Tests
+
+End-to-end tests now cover the git → Neo4j pipeline using disposable resources. They rely on Docker to launch a temporary Neo4j instance, so ensure Docker Desktop is running before executing them.
+
+1. Install backend dependencies (production + dev):
+   ```bash
+   cd backend
+   pipenv install --dev
+   ```
+2. Run the pytest suite (spins up a short-lived Neo4j container automatically):
+   ```bash
+   pipenv run pytest
+   ```
+The fixture fabricates a small Git repository with multiple authors and merge commits, keeping the suite fast while protecting your real data directories.
