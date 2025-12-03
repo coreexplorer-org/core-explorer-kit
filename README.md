@@ -115,6 +115,55 @@ The project uses Docker Compose to orchestrate three main services:
 - **`nginx.conf`**: Routes API requests to backend and serves static frontend files
 - **`docker-compose.yml`**: Orchestrates all services and defines network topology
 
+## Local Development Environment
+
+New contributors can stay productive by developing the Python backend locally while still relying on Docker Compose for the stateful services (Neo4j and nginx). The checklist below assumes macOS or Linux, but the same steps work on Windows with WSL2.
+
+### Prerequisites
+
+- Python 3.11 (earlier versions work but match the Docker image for fewer surprises)
+- [`pipenv`](https://pipenv.pypa.io/) for dependency + virtualenv management
+- Docker Desktop (or Docker Engine) with Compose v2 enabled
+- Git, curl, and a modern browser for inspecting GraphQL + Neo4j UIs
+
+### First-time setup
+
+```bash
+git clone https://github.com/coreexplorer-org/core-explorer-kit.git
+cd core-explorer-kit
+
+# Create + populate the data mounts expected by docker-compose.yml
+mkdir -p data
+cd data
+git clone https://github.com/bitcoin/bitcoin.git user_supplied_repo
+cd ..
+
+# Install backend dependencies inside a virtual environment
+cd backend
+pipenv install --dev
+```
+
+### Running the stack
+
+1. **Launch the infrastructure:** from the repo root run `docker compose up -d neo4j nginx`. This keeps Neo4j + nginx identical to production while freeing the backend for local iteration. Use `docker compose logs -f neo4j` if you need to confirm readiness.
+2. **Enter the backend virtualenv:** `cd backend && pipenv shell`.
+3. **Start the Flask server with live reload:** `FLASK_APP=app.app FLASK_RUN_PORT=5000 flask run --debug`. The app will connect to the Neo4j container via the hostname defined in `backend/app/config.py`.
+4. **Iterate:** edit files under `backend/app/` and Flask reloads automatically. Hit `http://localhost:5000/api/graphql` (direct) or `http://localhost/api/graphql` (via nginx) to interact with GraphQL.
+
+To stop everything, exit the Pipenv shell and run `docker compose down` from the repository root. Add `-v` if you purposely want to blow away the Neo4j data volume.
+
+### Common developer commands
+
+```bash
+# Lint + format (if you add tooling later, wire it up here)
+pipenv run pytest backend/tests -q          # run fast unit tests
+docker compose logs -f backend              # tail backend logs when containerized
+docker compose exec backend bash           # hop into the container when debugging
+pipenv run flask --app app.app routes      # inspect available Flask routes
+```
+
+These commands mirror what CI/CD will do: install dependencies with Pipenv, talk to Dockerized services, and run pytest. Staying close to this flow locally keeps surprises to a minimum.
+
 ### Repository Path Configuration
 
 The repository path configuration is a critical aspect of Core Explorer's setup, as it determines where the system looks for the git repository to analyze. Understanding this configuration is essential for both initial setup and troubleshooting.
@@ -249,6 +298,18 @@ If you need to use a different container path:
 - Verify the path in `config.py` matches the Docker mount destination
 - Check that the repository was cloned correctly before starting Docker
 - Ensure the volume mount path in `docker-compose.yml` is correct
+
+**Error: "SHA is empty, possible dubious ownership in the repository"**
+- Git 2.35+ blocks repositories whose owner differs from the current container user; the backend image now preconfigures `/app/bitcoin` as a safe directory.
+- If you pulled the repo before this fix, rebuild the backend image so the setting is baked in:
+  ```bash
+  docker compose build backend
+  docker compose up -d backend
+  ```
+- For a running container that you do not want to rebuild yet, run the following once to trust the mounted repo:
+  ```bash
+  docker compose exec backend git config --global --add safe.directory /app/bitcoin
+  ```
 
 **GraphQL `fame` query fails**
 - Verify that `CONTAINER_SIDE_REPOSITORY_PATH` in `config.py` matches your Docker mount destination

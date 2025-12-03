@@ -11,6 +11,9 @@ RUN apk add --no-cache \
     postgresql-dev \
     git 
 
+# Allow Git inside the container to read the mounted Bitcoin repo owned by the host user.
+RUN git config --global --add safe.directory /app/bitcoin
+
 # Set environment for Pipenv
 ENV LANG=C.UTF-8
 ENV PIPENV_IGNORE_VIRTUALENVS=1
