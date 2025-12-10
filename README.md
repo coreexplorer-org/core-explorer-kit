@@ -98,6 +98,7 @@ The project uses Docker Compose to orchestrate three main services:
    - **Setup**: Clone your target repository here (e.g., `git clone https://github.com/bitcoin/bitcoin.git user_supplied_repo`)
    - **Docker Mount**: Mounted to backend container at `/app/bitcoin`
    - **Used By**: `backend/app/git_processor.py` reads from `config.CONTAINER_SIDE_REPOSITORY_PATH`
+   - **Git safety**: The backend Docker image now marks `/app/bitcoin` as a safe Git directory automatically, so you only need to run `git config --global --add safe.directory <host-path>` when working with the repo outside of Docker.
 
 2. **`data/neo4j/`** (Auto-created, but required for persistence)
    - **Purpose**: Stores Neo4j graph database files
@@ -453,6 +454,9 @@ You can monitor the import progress by:
    - Run queries to check node counts:
    ```cypher
    MATCH (a:Actor) RETURN count(a) as actors
+   ```
+   
+   ```
    MATCH (c:Commit) RETURN count(c) as commits
    ```
 

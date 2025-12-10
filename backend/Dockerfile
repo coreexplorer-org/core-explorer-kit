@@ -33,6 +33,7 @@ RUN pip install --no-cache-dir \
     GitPython \
     git-fame
 
+RUN git config --global --add safe.directory /app/bitcoin
 
 # Copy app source
 COPY app .
