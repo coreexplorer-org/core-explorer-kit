@@ -152,6 +152,10 @@ pipenv install --dev
 
 To stop everything, exit the Pipenv shell and run `docker compose down` from the repository root. Add `-v` if you purposely want to blow away the Neo4j data volume.
 
+### Bootstrap script
+
+If you want a single command that clones the repo, rebuilds the backend image, and brings the stack online (including the trusted Git directory fix), run `scripts/bootstrap-stack.sh`. It handles pulling `main`, rebuilding the backend, starting Neo4j + backend + nginx, and reapplying the `safe.directory` flag so processing endpoints immediately work.
+
 ### Common developer commands
 
 ```bash
