@@ -79,7 +79,7 @@ The project uses Docker Compose to orchestrate three main services:
 
 3. **nginx** (Reverse Proxy)
    - **Image**: `nginx:alpine`
-   - **Ports**: `80:80`
+   - **Ports**: `8080:8080`
    - **Volumes**:
      - `./nginx.conf:/etc/nginx/nginx.conf:ro` - Nginx configuration
      - `./frontend:/app/frontend` - Static HTML files
@@ -148,7 +148,7 @@ pipenv install --dev
 1. **Launch the infrastructure:** from the repo root run `docker compose up -d neo4j nginx`. This keeps Neo4j + nginx identical to production while freeing the backend for local iteration. Use `docker compose logs -f neo4j` if you need to confirm readiness.
 2. **Enter the backend virtualenv:** `cd backend && pipenv shell`.
 3. **Start the Flask server with live reload:** `FLASK_APP=app.app FLASK_RUN_PORT=5000 flask run --debug`. The app will connect to the Neo4j container via the hostname defined in `backend/app/config.py`.
-4. **Iterate:** edit files under `backend/app/` and Flask reloads automatically. Hit `http://localhost:5000/api/graphql` (direct) or `http://localhost/api/graphql` (via nginx) to interact with GraphQL.
+4. **Iterate:** edit files under `backend/app/` and Flask reloads automatically. Hit `http://localhost:5000/api/graphql` (direct) or `http://localhost:8080/api/graphql` (via nginx) to interact with GraphQL.
 
 To stop everything, exit the Pipenv shell and run `docker compose down` from the repository root. Add `-v` if you purposely want to blow away the Neo4j data volume.
 
@@ -371,12 +371,12 @@ After running `docker compose up`, Core Explorer starts its services in a specif
    - Flask application starts on port 5000
    - Connects to Neo4j database
    - **Note**: The backend does NOT automatically process git data on startup
-   - **Access**: API available at `http://localhost:5000/api/` or via nginx at `http://localhost/api/`
+   - **Access**: API available at `http://localhost:5000/api/` or via nginx at `http://localhost:8080/api/`
 
 3. **Nginx Reverse Proxy** starts last
    - Routes API requests to the backend
    - Serves static frontend files
-   - **Access**: Main entry point at `http://localhost/`
+   - **Access**: Main entry point at `http://localhost:8080/`
 
 #### First-Time Data Import
 
@@ -397,7 +397,7 @@ Navigate to the processing endpoint in your browser or use curl:
 
 ```bash
 # Via nginx (recommended)
-curl http://localhost/process_git_data_to_neo4j/
+curl http://localhost:8080/process_git_data_to_neo4j/
 
 # Or directly to backend
 curl http://localhost:5000/process_git_data_to_neo4j/
@@ -405,7 +405,7 @@ curl http://localhost:5000/process_git_data_to_neo4j/
 
 Or open in your browser:
 ```
-http://localhost/process_git_data_to_neo4j/
+http://localhost:8080/process_git_data_to_neo4j/
 ```
 
 **Note:** this is a synchronous call & will presently timeout in the browser for large `.git` repos (such as `bitcoin`)
@@ -462,7 +462,7 @@ Once processing completes, verify the data:
 
 1. **Check the response**: The endpoint returns "Processing Git Data is Complete"
 
-2. **Query via GraphQL** (http://localhost/api/graphql):
+2. **Query via GraphQL** (http://localhost:8080/api/graphql):
    ```graphql
    query {
      actors {
@@ -518,9 +518,9 @@ Once processing completes, verify the data:
 
 Once the initial import is complete:
 
-1. **Explore the GraphQL API**: Visit `http://localhost/api/graphql` for the GraphiQL interface
+1. **Explore the GraphQL API**: Visit `http://localhost:8080/api/graphql` for the GraphiQL interface
 2. **Query repository data**: Use GraphQL queries to explore actors, commits, and relationships
-3. **Access the frontend**: Visit `http://localhost/` to see the web interface
+3. **Access the frontend**: Visit `http://localhost:8080/` to see the web interface
 4. **Re-run processing**: Subsequent calls to `/process_git_data_to_neo4j/` will process additional file paths (if configured)
 
 The system is now ready to analyze your repository's development history and peer review patterns!
