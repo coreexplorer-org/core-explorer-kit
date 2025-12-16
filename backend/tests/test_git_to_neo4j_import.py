@@ -111,3 +111,32 @@ def test_folder_processing_with_preseeded_status(sample_git_repo, neo4j_driver):
         "src/consensus"
     ]
 
+
+def test_count_methods(sample_git_repo, neo4j_driver):
+    """Test the new count methods for GraphQL queries."""
+    # First complete the git import
+    process_git_data(
+        repo_path=sample_git_repo.path,
+        neo4j_driver=neo4j_driver,
+        folder_paths=[],  # No folder paths for initial import
+    )
+
+    # Now process folder data which creates FileDetailRecord nodes
+    from git_processor import import_bitcoin_path
+    import_bitcoin_path("src/consensus", repo_path=sample_git_repo.path, neo4j_driver=neo4j_driver)
+
+    # Test node counts
+    actor_count = neo4j_driver.get_node_count("Actor")
+    commit_count = neo4j_driver.get_node_count("Commit")
+    file_detail_count = neo4j_driver.get_node_count("FileDetailRecord")
+
+    assert actor_count >= 3
+    assert commit_count == len(sample_git_repo.commits)
+    assert file_detail_count == 1  # We imported one folder
+
+    # Test import status
+    status = neo4j_driver.get_import_status()
+    assert status is not None
+    assert "git_import_complete" in status
+    assert status["git_import_complete"] is True
+

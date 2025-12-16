@@ -198,6 +198,42 @@ class Query(graphene.ObjectType):
             contributors=contributors
         )
 
+    # Count queries for displaying node counts
+    actor_count = graphene.Int(description="Return the total count of Actor nodes")
+
+    def resolve_actor_count(self, info):
+        db = Neo4jDriver()
+        count = db.get_node_count("Actor")
+        db.close()
+        return count
+
+    commit_count = graphene.Int(description="Return the total count of Commit nodes")
+
+    def resolve_commit_count(self, info):
+        db = Neo4jDriver()
+        count = db.get_node_count("Commit")
+        db.close()
+        return count
+
+    file_detail_record_count = graphene.Int(description="Return the total count of FileDetailRecord nodes")
+
+    def resolve_file_detail_record_count(self, info):
+        db = Neo4jDriver()
+        count = db.get_node_count("FileDetailRecord")
+        db.close()
+        return count
+
+    import_status = graphene.Field(
+        graphene.JSONString,
+        description="Return the ImportStatus node details"
+    )
+
+    def resolve_import_status(self, info):
+        db = Neo4jDriver()
+        status = db.get_import_status()
+        db.close()
+        return status
+
 
 class CreateGithubOrganization(graphene.Mutation):
     class Arguments:

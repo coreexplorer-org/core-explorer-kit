@@ -279,6 +279,10 @@ class Neo4jDriver:
 
     @staticmethod
     def _merge_import_status_node(tx):
+
+        # debugging the merge function in cypher
+        # query = "MATCH (a:ImportStatus) RETURN a"
+
         query = """
         MERGE (a:ImportStatus)
         ON CREATE SET a.git_import_complete = false, a.next_complete = false
@@ -342,3 +346,24 @@ class Neo4jDriver:
             "git_import_complete": record["a.git_import_complete"],
             "next_complete": record["a.next_complete"]
         }
+
+    def get_node_count(self, label: str) -> int:
+        """Get the count of nodes with a specific label."""
+        # Validate label to prevent injection (alphanumeric and underscores only)
+        if not label.replace("_", "").isalnum():
+            raise ValueError(f"Invalid label: {label}. Labels must contain only alphanumeric characters and underscores.")
+        with self.driver.session() as session:
+            query = f"MATCH (n:{label}) RETURN count(n) AS count"
+            result = session.run(query)  # type: ignore[arg-type]
+            record = result.single()
+            return record["count"] if record else 0
+
+    def get_import_status(self):
+        """Get the ImportStatus node details."""
+        with self.driver.session() as session:
+            query = "MATCH (i:ImportStatus) RETURN i"
+            result = session.run(query)
+            record = result.single()
+            if record:
+                return dict(record["i"])
+            return None
