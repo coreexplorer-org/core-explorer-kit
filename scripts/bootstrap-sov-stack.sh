@@ -11,6 +11,51 @@ if [ "$(id -un)" != "deploy" ]; then
   exit 1
 fi
 
+# --- Function to create .env from .env.example ---
+create_env_file() {
+  local env_example="$1"
+  local env_file="$2"
+  
+  if [ ! -f "${env_example}" ]; then
+    echo "ERROR: ${env_example} not found. Cannot create .env file." >&2
+    return 1
+  fi
+  
+  echo "Creating .env file..."
+  echo ""
+  
+  > "${env_file}"  # Create empty file
+  
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Skip empty lines and comments, but preserve them in output
+    if [[ -z "$line" ]] || [[ "$line" =~ ^[[:space:]]*# ]]; then
+      echo "$line" >> "${env_file}"
+      continue
+    fi
+    
+    # Extract variable name and default value
+    if [[ "$line" =~ ^([A-Z_]+)=(.*)$ ]]; then
+      var_name="${BASH_REMATCH[1]}"
+      default_value="${BASH_REMATCH[2]}"
+      
+      # Prompt user for value
+      echo -n "${var_name} [${default_value}]: "
+      read -r user_input
+      
+      # Use user input if provided, otherwise use default
+      if [ -n "$user_input" ]; then
+        echo "${var_name}=${user_input}" >> "${env_file}"
+      else
+        echo "${var_name}=${default_value}" >> "${env_file}"
+      fi
+    fi
+  done < "${env_example}"
+  
+  echo ""
+  echo ".env file created successfully!"
+  echo ""
+}
+
 # --- Ensure persistent dirs exist ---
 mkdir -p "${DATAROOT}/neo4j" "${DATAROOT}/user_supplied_repo"
 
@@ -27,6 +72,26 @@ fi
 cd "${CODEDIR}"
 git fetch origin
 git reset --hard origin/main
+
+# --- Check for .env file ---
+if [ ! -f "${CODEDIR}/.env" ]; then
+  echo "WARNING: .env file not found in ${CODEDIR}"
+  echo ""
+  if [ -f "${CODEDIR}/.env.example" ]; then
+    echo "Would you like to create a .env file now? (y/n)"
+    read -r response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+      create_env_file "${CODEDIR}/.env.example" "${CODEDIR}/.env"
+    else
+      echo "ERROR: .env file is required to run the stack." >&2
+      echo "Please create ${CODEDIR}/.env manually or run this script again." >&2
+      exit 1
+    fi
+  else
+    echo "ERROR: Neither .env nor .env.example found in ${CODEDIR}" >&2
+    exit 1
+  fi
+fi
 
 # --- Ensure ./data points to /srv durable storage (no upstream compose patching) ---
 # Replace whatever exists at ./data with a symlink to /srv
