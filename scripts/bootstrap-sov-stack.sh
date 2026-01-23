@@ -46,7 +46,7 @@ docker compose up -d backend nginx
 # This is runtime-scoped; doesn't require rebuilds and survives container restarts if the home dir persists.
 # If the backend container runs as root, this sets /root/.gitconfig. If it runs as non-root, it sets that user's ~/.gitconfig.
 TARGET_MOUNT="/app/bitcoin"
-docker compose exec backend sh -lc "git config --global --add safe.directory '${TARGET_MOUNT}' >/dev/null 2>&1 || true"
+docker compose exec -T backend sh -lc "git config --global --add safe.directory '${TARGET_MOUNT}' >/dev/null 2>&1 || true"
 
 cat <<'EOF'
 Services are now running.
