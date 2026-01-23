@@ -111,7 +111,13 @@ The project uses Docker Compose to orchestrate three main services:
 
 ### Key Configuration Files
 
-- **`backend/app/config.py`**: Defines Neo4j connection (`bolt://neo4j:7687`) and repository path (`/app/bitcoin`)
+- **`.env`**: Environment configuration for sensitive credentials and deployment-specific settings (not committed to git)
+  - `NEO4J_USER`: Neo4j database username (default: `neo4j`)
+  - `NEO4J_PASSWORD`: Neo4j database password (⚠️ change for production!)
+  - `CONTAINER_SIDE_REPOSITORY_PATH`: Path to repository inside container (default: `/app/bitcoin`)
+  - `USER_SUPPLIED_REPO_PATH`: Path to repository on host (default: `./data/user_supplied_repo`)
+- **`.env.example`**: Template for `.env` file with placeholder values (committed to git)
+- **`backend/app/config.py`**: Reads configuration from environment variables with fallback defaults
 - **`nginx.conf`**: Routes API requests to backend and serves static frontend files
 - **`docker-compose.yml`**: Orchestrates all services and defines network topology
 
@@ -131,6 +137,10 @@ New contributors can stay productive by developing the Python backend locally wh
 ```bash
 git clone https://github.com/coreexplorer-org/core-explorer-kit.git
 cd core-explorer-kit
+
+# Create environment configuration file
+cp .env.example .env
+# Edit .env and update NEO4J_PASSWORD and other settings as needed
 
 # Create + populate the data mounts expected by docker-compose.yml
 mkdir -p data
@@ -152,9 +162,62 @@ pipenv install --dev
 
 To stop everything, exit the Pipenv shell and run `docker compose down` from the repository root. Add `-v` if you purposely want to blow away the Neo4j data volume.
 
-### Bootstrap script
+### Bootstrap scripts
 
-If you want a single command that clones the repo, rebuilds the backend image, and brings the stack online (including the trusted Git directory fix), run `scripts/bootstrap-stack.sh`. It handles pulling `main`, rebuilding the backend, starting Neo4j + backend + nginx, and reapplying the `safe.directory` flag so processing endpoints immediately work.
+Two bootstrap scripts are provided for automated deployment:
+
+#### `scripts/bootstrap-stack.sh` (Local/Development)
+
+For local development or single-user setups:
+
+```bash
+./scripts/bootstrap-stack.sh
+```
+
+This script:
+- Clones the repository to `~/core-explorer-kit` if not present
+- Pulls latest changes from `origin/main`
+- **Checks for `.env` file** and prompts to create it if missing
+- Rebuilds the backend Docker image
+- Starts Neo4j, backend, and nginx services
+- Configures git `safe.directory` for the mounted repository
+
+#### `scripts/bootstrap-sov-stack.sh` (Production/Server)
+
+For production deployments on dedicated servers:
+
+```bash
+./scripts/bootstrap-sov-stack.sh
+```
+
+This script:
+- Must be run as the `deploy` user (enforces security)
+- Clones/updates repository to `/opt/core-explorer-kit`
+- **Checks for `.env` file** and prompts to create it if missing
+- Links persistent data storage from `/srv/core-explorer-kit/data`
+- Pulls pre-built Docker images (no local builds)
+- Starts the stack with production-ready configuration
+
+#### Environment Configuration
+
+Both scripts will interactively prompt you to create a `.env` file if one doesn't exist:
+
+```
+WARNING: .env file not found
+
+Would you like to create a .env file now? (y/n)
+y
+Creating .env file...
+
+NEO4J_USER [neo4j]: 
+NEO4J_PASSWORD [your_secure_password_here]: my_secure_password
+CONTAINER_SIDE_REPOSITORY_PATH [/app/bitcoin]: 
+USER_SUPPLIED_REPO_PATH [./data/user_supplied_repo]: 
+
+.env file created successfully!
+```
+
+You can accept defaults by pressing Enter, or provide custom values. The `.env` file is automatically ignored by git to protect sensitive credentials.
 
 ### Common developer commands
 
@@ -351,7 +414,31 @@ git clone https://github.com/coreexplorer-org/repex.git
 git clone https://github.com/coreexplorer-org/CE_demo.git
 ```
 
+### Configure environment variables
+
+Before running the stack, create a `.env` file with your configuration:
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit with your preferred editor
+nano .env  # or vim, code, etc.
+```
+
+**Important**: Update at least the `NEO4J_PASSWORD` for security:
+
+```bash
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_secure_password_here  # ⚠️ Change this!
+CONTAINER_SIDE_REPOSITORY_PATH=/app/bitcoin
+USER_SUPPLIED_REPO_PATH=./data/user_supplied_repo
+```
+
+The `.env` file is automatically ignored by git to protect your credentials.
+
 ### Run the full environment with Docker Compose
+
 From inside core-explorer-kit (here), run:
 
 ```bash
