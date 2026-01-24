@@ -35,8 +35,8 @@ def hello():
 
 @app.route("/process_git_data_to_neo4j/") # is this just "do_some_jobs" ? 
 def process_git_data_to_neo4j():
-    process_git_data()
-
+    # process_git_data()
+    process_git_data(use_new_schema=True)
     html = (
         "<h3>Processing Git Data is Complete</h3>"
         "<b>Hostname:</b> {hostname}<br/>"

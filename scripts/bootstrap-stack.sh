@@ -88,7 +88,13 @@ docker compose up -d neo4j
 docker compose up -d backend nginx
 
 # Ensure git trusts the mounted repo (even though the image now configures it)
-docker compose exec backend git config --global --add safe.directory /app/bitcoin >/dev/null || true
+# Read CONTAINER_SIDE_REPOSITORY_PATH from .env file
+if [ -f "${WORKDIR}/.env" ]; then
+  TARGET_MOUNT=$(grep "^CONTAINER_SIDE_REPOSITORY_PATH=" "${WORKDIR}/.env" | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "/app/bitcoin")
+else
+  TARGET_MOUNT="/app/bitcoin"  # fallback default
+fi
+docker compose exec backend git config --global --add safe.directory "${TARGET_MOUNT}" >/dev/null || true
 
 # Show how to access the services
 cat <<'EOF'

@@ -110,7 +110,12 @@ docker compose up -d backend nginx
 # --- Fix git safe.directory for mounted repo inside backend container ---
 # This is runtime-scoped; doesn't require rebuilds and survives container restarts if the home dir persists.
 # If the backend container runs as root, this sets /root/.gitconfig. If it runs as non-root, it sets that user's ~/.gitconfig.
-TARGET_MOUNT="/app/bitcoin"
+# Read CONTAINER_SIDE_REPOSITORY_PATH from .env file
+if [ -f "${CODEDIR}/.env" ]; then
+  TARGET_MOUNT=$(grep "^CONTAINER_SIDE_REPOSITORY_PATH=" "${CODEDIR}/.env" | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "/app/bitcoin")
+else
+  TARGET_MOUNT="/app/bitcoin"  # fallback default
+fi
 docker compose exec -T backend sh -lc "git config --global --add safe.directory '${TARGET_MOUNT}' >/dev/null 2>&1 || true"
 
 cat <<'EOF'

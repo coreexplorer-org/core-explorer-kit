@@ -1,16 +1,20 @@
 services:
 
   neo4j:
-    image: neo4j:latest
+    image: neo4j:5.20.0
     ports:
       - "7474:7474"  # HTTP interface
       - "7687:7687"  # Bolt protocol
     env_file:
       - .env
     environment:
-      - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}
+      - NEO4J_AUTH=${APP_NEO4J_USER}/${APP_NEO4J_PASSWORD}
+      # Disable strict validation to avoid PASSWORD setting errors from old config
+      # - NEO4J_server_config_strict_validation_enabled=false
+      # - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}
     volumes:
       - ./data/neo4j:/data  # Persist data in project folder
+    command: ["neo4j", "console", "--verbose"]
     restart: unless-stopped
     networks:
       - appnet
