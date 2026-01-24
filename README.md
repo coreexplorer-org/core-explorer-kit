@@ -112,8 +112,8 @@ The project uses Docker Compose to orchestrate three main services:
 ### Key Configuration Files
 
 - **`.env`**: Environment configuration for sensitive credentials and deployment-specific settings (not committed to git)
-  - `NEO4J_USER`: Neo4j database username (default: `neo4j`)
-  - `NEO4J_PASSWORD`: Neo4j database password (⚠️ change for production!)
+  - `APP_NEO4J_USER`: Neo4j database username (default: `neo4j`)
+  - `APP_NEO4J_PASSWORD`: Neo4j database password (⚠️ change for production!)
   - `CONTAINER_SIDE_REPOSITORY_PATH`: Path to repository inside container (default: `/app/bitcoin`)
   - `USER_SUPPLIED_REPO_PATH`: Path to repository on host (default: `./data/user_supplied_repo`)
 - **`.env.example`**: Template for `.env` file with placeholder values (committed to git)
@@ -140,7 +140,7 @@ cd core-explorer-kit
 
 # Create environment configuration file
 cp .env.example .env
-# Edit .env and update NEO4J_PASSWORD and other settings as needed
+# Edit .env and update APP_NEO4J_PASSWORD and other settings as needed
 
 # Create + populate the data mounts expected by docker-compose.yml
 mkdir -p data
@@ -180,7 +180,7 @@ This script:
 - **Checks for `.env` file** and prompts to create it if missing
 - Rebuilds the backend Docker image
 - Starts Neo4j, backend, and nginx services
-- Configures git `safe.directory` for the mounted repository
+- Configures git `safe.directory` for the mounted repository (reads `CONTAINER_SIDE_REPOSITORY_PATH` from `.env`)
 
 #### `scripts/bootstrap-sov-stack.sh` (Production/Server)
 
@@ -197,6 +197,7 @@ This script:
 - Links persistent data storage from `/srv/core-explorer-kit/data`
 - Pulls pre-built Docker images (no local builds)
 - Starts the stack with production-ready configuration
+- Configures git `safe.directory` for the mounted repository (reads `CONTAINER_SIDE_REPOSITORY_PATH` from `.env`)
 
 #### Environment Configuration
 
@@ -209,8 +210,8 @@ Would you like to create a .env file now? (y/n)
 y
 Creating .env file...
 
-NEO4J_USER [neo4j]: 
-NEO4J_PASSWORD [your_secure_password_here]: my_secure_password
+APP_NEO4J_USER [neo4j]: 
+APP_NEO4J_PASSWORD [your_secure_password_here]: my_secure_password
 CONTAINER_SIDE_REPOSITORY_PATH [/app/bitcoin]: 
 USER_SUPPLIED_REPO_PATH [./data/user_supplied_repo]: 
 
@@ -426,11 +427,11 @@ cp .env.example .env
 nano .env  # or vim, code, etc.
 ```
 
-**Important**: Update at least the `NEO4J_PASSWORD` for security:
+**Important**: Update at least the `APP_NEO4J_PASSWORD` for security:
 
 ```bash
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_secure_password_here  # ⚠️ Change this!
+APP_NEO4J_USER=neo4j
+APP_NEO4J_PASSWORD=your_secure_password_here  # ⚠️ Change this!
 CONTAINER_SIDE_REPOSITORY_PATH=/app/bitcoin
 USER_SUPPLIED_REPO_PATH=./data/user_supplied_repo
 ```
