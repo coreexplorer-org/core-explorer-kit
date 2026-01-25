@@ -4,6 +4,79 @@
 
 Core Explorer is a comprehensive development audit and analysis platform designed to systematically review and assess the health of large-scale open source projects, with a primary focus on Bitcoin Core. The platform addresses a critical question in open source development: "Who watches the watcher?" by providing tools to identify when code changes may have received insufficient peer review. At its core, Core Explorer processes git repository data—extracting commit history, tracking authors and committers, analyzing relationships between contributors and their code changes—and stores this information in a [Neo4j graph database](https://neo4j.com/) that models the complex relationships between developers, commits, and code paths. The system includes a [Flask-based backend](backend/) with a [GraphQL API](backend/app/schema.py) for flexible data querying, a [Next.js web interface](CE_demo/README.md) for visualizing repository metrics and contributor activity, and [automated processing pipelines](repo_explorer/README.md) that can analyze entire repositories or drill down into specific files and directories. Key health metrics tracked include self-merge ratios (when authors merge their own code, indicating potential gaps in peer review), contributor acknowledgment patterns, and per-line code quality indices. By providing transparent, data-driven insights into the peer review process, Core Explorer helps maintainers, contributors, and auditors understand the review coverage and quality of code contributions, ultimately strengthening the integrity and security of critical open source projects.
 
+## Data Model
+
+Core Explorer uses a Git-first schema that models repository history as a graph database. The schema is designed around the principle that commits are the primary stable keys (SHA-based), enabling efficient queries about who changed what, when, and how.
+
+### Core Node Types
+
+**Identity** - Represents raw contributor identities from Git
+- Properties: `source` (e.g., "git"), `name`, `email` (composite unique key)
+- Relationships: `AUTHORED` → Commit, `COMMITTED` → Commit, `TAGGED` → TagObject
+
+**Commit** - Represents Git commits
+- Properties: `commit_hash` (unique SHA), `authoredAt`, `committedAt`, `message`, `summary`, `isMerge` (boolean)
+- Relationships: `HAS_PARENT` → Commit (with `idx` property for parent order), `HAS_CHANGE` → FileChange, `MERGED_INCLUDES` → Commit (for merge analysis)
+
+**FileChange** - Tracks file-level changes per commit
+- Properties: `status` (A/M/D/R for Added/Modified/Deleted/Renamed), `add` (lines added), `del` (lines deleted), `rename_from` (nullable), `isSensitive` (boolean), `commit_hash`, `path` (composite unique key with commit_hash)
+- Relationships: `OF_PATH` → Path
+
+**Path** - Represents file paths in the repository
+- Properties: `path` (unique string)
+- Relationships: Connected via FileChange nodes
+
+**Ref** - Represents Git branches and tags
+- Properties: `kind` ("branch" or "tag"), `name`, `remote` (nullable, e.g., "origin")
+- Relationships: `POINTS_TO` → Commit or TagObject
+
+**TagObject** - Represents annotated Git tags
+- Properties: `name`, `taggerAt` (datetime), `message`
+- Relationships: `TAG_OF` → Commit, `HAS_SIGNATURE` → PGPKey
+
+**PGPKey** - Represents PGP/GPG keys used for signing
+- Properties: `fingerprint` (unique), `createdAt` (nullable), `revokedAt` (nullable)
+- Relationships: Connected via `HAS_SIGNATURE` from Commits and TagObjects
+
+**IngestRun** - Tracks each data import session
+- Properties: `id` (unique UUID), `pulledAt` (datetime), `status`, progress counters
+- Relationships: `SAW_REF` → RefState
+
+**RefState** - Snapshots of ref positions at import time
+- Properties: `name`, `kind`, `remote`, `tipSha` (commit SHA at snapshot time)
+- Relationships: `POINTS_TO` → Commit
+
+### Key Relationships
+
+- `AUTHORED` / `COMMITTED`: Links Identity nodes to Commit nodes with timestamp properties
+- `HAS_PARENT`: Links commits to their parent commits (enables ancestry traversal)
+- `MERGED_INCLUDES`: For merge commits, links to commits introduced by the merge (reachable from 2nd parent but not 1st)
+- `HAS_CHANGE`: Links commits to FileChange nodes representing file modifications
+- `HAS_SIGNATURE`: Links Commits and TagObjects to PGPKey nodes with validation status
+- `SAW_REF`: Links IngestRun to RefState snapshots (enables tracking ref movement over time)
+
+### Data Integrity
+
+The schema enforces uniqueness constraints on:
+- `Commit.commit_hash`
+- `Identity(source, email, name)`
+- `Path.path`
+- `Ref(kind, name, remote)`
+- `PGPKey.fingerprint`
+- `IngestRun.id`
+- `FileChange(commit_hash, path)`
+
+These constraints ensure data integrity and enable efficient lookups and merges during incremental imports.
+
+### Query Patterns Enabled
+
+The schema supports powerful analysis queries such as:
+- **Self-merge detection**: Find commits where the author and committer are the same
+- **Sensitive path analysis**: Track changes to critical code paths (e.g., consensus, policy)
+- **Merge ancestry analysis**: Identify which commits were introduced by each merge
+- **Temporal ref tracking**: Detect force-pushes and history rewrites by comparing RefState snapshots
+- **PGP signature auditing**: Track which commits and tags are signed, and by which keys
+
 ## Project Structure
 
 The Core Explorer Kit is organized into several key directories, each serving a specific purpose in the data processing and visualization pipeline. Below is a detailed breakdown of the project structure, including Docker configuration and data dependencies.
@@ -84,10 +157,9 @@ The project uses Docker Compose to orchestrate three main services:
      - `./nginx.conf:/etc/nginx/nginx.conf:ro` - Nginx configuration
      - `./frontend:/app/frontend` - Static HTML files
    - **Dependencies**: Waits for `neo4j` and `backend` services
-   - **Routing**:
-     - `/api/*` → Proxies to `backend:5000`
-     - `/process_git_data_to_neo4j/` → Proxies to `backend:5000`
-     - `/` → Serves static files from `/app/frontend`
+  - **Routing**:
+    - `/api/*` → Proxies to `backend:5000`
+    - `/` → Serves static files from `/app/frontend`
 
 ### Data Dependencies
 
@@ -489,40 +561,43 @@ Navigate to the processing endpoint in your browser or use curl:
 
 ```bash
 # Via nginx (recommended)
-curl http://localhost:8080/process_git_data_to_neo4j/
+curl http://localhost:8080/api/process_git_data_to_neo4j/
 
 # Or directly to backend
-curl http://localhost:5000/process_git_data_to_neo4j/
+curl http://localhost:5000/api/process_git_data_to_neo4j/
 ```
 
 Or open in your browser:
 ```
-http://localhost:8080/process_git_data_to_neo4j/
+http://localhost:8080/api/process_git_data_to_neo4j/
 ```
 
-**Note:** this is a synchronous call & will presently timeout in the browser for large `.git` repos (such as `bitcoin`)
+**Note:** The processing runs asynchronously in a background thread and returns immediately with a Run ID. You can monitor progress using the status endpoint.
 
 **Step 3: What Happens During Ingestion**
 
 When you trigger the processing endpoint:
 
 1. **Background Execution**: The ingestion starts in a separate thread, returning an immediate **Run ID**.
-2. **Ingest Run Creation**: The system creates an `IngestRun` node with a `STARTED` status.
-3. **Commit Processing (Backbone)**:
-   - Reads commits from the git repository.
+2. **Schema Setup**: The system creates all required Neo4j constraints and indexes, including uniqueness constraints for commits, identities, paths, refs, PGP keys, ingest runs, and file changes.
+3. **Ingest Run Creation**: The system creates an `IngestRun` node with a `STARTED` status to track this import session.
+4. **Commit Processing (Backbone)**:
+   - Reads commits from the git repository (incrementally processes only new commits if the database already contains data).
    - For each commit, creates/updates:
-     - **Identity nodes** for authors and committers (with source, name, and email).
-     - **Commit nodes** with hash, message, summary, and timestamps.
-     - **Relationships**: `AUTHORED`, `COMMITTED`, and `HAS_PARENT` edges.
-   - Mark status as `COMMITS_COMPLETE` upon successful backbone sync.
-4. **Stage Gate Verification**:
+     - **Identity nodes** for authors and committers (with `source`, `name`, and `email` properties).
+     - **Commit nodes** with `commit_hash`, `message`, `summary`, `authoredAt`, `committedAt`, and `isMerge` properties.
+     - **Relationships**: `AUTHORED` and `COMMITTED` edges (with timestamp properties), and `HAS_PARENT` edges (with `idx` property for parent order).
+   - Processes commits in batches for efficiency.
+   - Marks status as `COMMITS_COMPLETE` upon successful backbone sync.
+5. **Stage Gate Verification**:
    - The system verifies the integrity of the commit backbone before proceeding.
    - If verification fails (e.g., interrupted run), advanced analysis is skipped to protect data integrity.
-5. **Advanced Enrichment**:
-   - **PGP Signatures**: Extracts GPG signatures, creating `PGPKey` nodes.
-   - **File Changes**: Tracks additions/deletions for sensitive paths (e.g., `src/consensus`).
-   - **Merge Analysis**: Computes `MERGED_INCLUDES` relationships.
-6. **Completion**: The `IngestRun` status is updated to `COMPLETED`.
+6. **Advanced Enrichment** (status transitions to `ENRICHING`):
+   - **Refs and Tags**: Creates `Ref` and `TagObject` nodes, and `RefState` snapshots linked to the `IngestRun`.
+   - **File Changes**: Tracks additions/deletions/renames for specified paths (defaults to sensitive paths like `src/policy`, `src/consensus`), creating `FileChange` and `Path` nodes with `HAS_CHANGE` and `OF_PATH` relationships.
+   - **PGP Signatures**: Extracts GPG signatures from commits and tags, creating `PGPKey` nodes and `HAS_SIGNATURE` relationships with validation status.
+   - **Merge Analysis**: Computes `MERGED_INCLUDES` relationships to identify which commits were introduced by each merge commit.
+7. **Completion**: The `IngestRun` status is updated to `COMPLETED`.
 
 **Step 4: Monitor Progress**
 
@@ -627,7 +702,7 @@ Once the initial import is complete:
 1. **Explore the GraphQL API**: Visit `http://localhost:8080/api/graphql` for the GraphiQL interface
 2. **Query repository data**: Use GraphQL queries to explore identities, commits, and relationships
 3. **Access the frontend**: Visit `http://localhost:8080/` to see the web interface
-4. **Re-run processing**: Subsequent calls to `/process_git_data_to_neo4j/` will process additional file paths (if configured)
+4. **Re-run processing**: Subsequent calls to `/api/process_git_data_to_neo4j/` will process additional file paths (if configured)
 
 The system is now ready to analyze your repository's development history and peer review patterns!
 

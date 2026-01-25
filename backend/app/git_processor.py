@@ -84,6 +84,9 @@ def process_git_data(
             print("Commit backbone verified. Proceeding with advanced enrichment.")
             
             # 2. ENRICHMENT STAGES
+            # Mark as enriching to distinguish from backbone completion
+            db.update_ingest_run_status(run_id, 'ENRICHING')
+            
             # Process refs and tags
             print("Processing refs and tags...")
             process_refs_and_tags(repo, db, run_id)
@@ -105,7 +108,7 @@ def process_git_data(
             # Process PGP signatures for commits
             print("Processing PGP signatures for commits...")
             sig_count = process_commit_signatures(repo, db, commit_limit=commit_limit)
-            db.update_ingest_run_status(run_id, 'COMMITS_COMPLETE', totalSignaturesProcessed=sig_count)
+            db.update_ingest_run_status(run_id, 'ENRICHING', totalSignaturesProcessed=sig_count)
             
             # Process PGP signatures for tags
             print("Processing PGP signatures for tags...")
@@ -114,7 +117,7 @@ def process_git_data(
             # Process MERGED_INCLUDES for merge commits
             print("Computing MERGED_INCLUDES relationships...")
             merge_count = process_merged_includes(repo, db, merge_limit=None)
-            db.update_ingest_run_status(run_id, 'COMMITS_COMPLETE', totalMergesProcessed=merge_count)
+            db.update_ingest_run_status(run_id, 'ENRICHING', totalMergesProcessed=merge_count)
             
             # Mark run as fully complete
             db.update_ingest_run_status(run_id, 'COMPLETED')

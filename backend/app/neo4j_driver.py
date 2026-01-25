@@ -347,8 +347,100 @@ class Neo4jDriver:
 
     # ========== New Schema Methods ==========
 
+    def check_and_cleanup_filechange_duplicates(self, cleanup: bool = False) -> Dict[str, Any]:
+        """
+        Check for duplicate FileChange nodes (same commit_hash and path).
+        
+        Args:
+            cleanup: If True, remove duplicates keeping the first one. If False, only report.
+        
+        Returns:
+            Dict with 'duplicate_count' and 'duplicate_groups' information
+        """
+        with self._driver.session() as session:
+            # Find duplicates
+            check_query = """
+            MATCH (fc:FileChange)
+            WITH fc.commit_hash AS commit_hash, fc.path AS path, collect(fc) AS nodes
+            WHERE size(nodes) > 1
+            RETURN commit_hash, path, size(nodes) AS count, [n IN nodes | id(n)] AS node_ids
+            ORDER BY count DESC
+            """
+            
+            result = session.run(check_query)
+            duplicates = []
+            total_duplicate_nodes = 0
+            
+            for record in result:
+                commit_hash = record["commit_hash"]
+                path = record["path"]
+                count = record["count"]
+                node_ids = record["node_ids"]
+                
+                duplicates.append({
+                    "commit_hash": commit_hash,
+                    "path": path,
+                    "count": count,
+                    "node_ids": node_ids
+                })
+                total_duplicate_nodes += (count - 1)  # -1 because we keep one
+            
+            if duplicates:
+                print(f"Found {len(duplicates)} duplicate FileChange groups affecting {total_duplicate_nodes} nodes")
+                
+                if cleanup:
+                    # Delete duplicates, keeping the first node in each group
+                    cleanup_query = """
+                    MATCH (fc:FileChange)
+                    WITH fc.commit_hash AS commit_hash, fc.path AS path, collect(fc) AS nodes
+                    WHERE size(nodes) > 1
+                    WITH commit_hash, path, nodes[0] AS keep, nodes[1..] AS to_delete
+                    UNWIND to_delete AS duplicate
+                    DETACH DELETE duplicate
+                    RETURN count(duplicate) AS deleted_count
+                    """
+                    
+                    cleanup_result = session.run(cleanup_query)
+                    deleted_record = cleanup_result.single()
+                    deleted_count = deleted_record["deleted_count"] if deleted_record else 0
+                    print(f"Cleaned up {deleted_count} duplicate FileChange nodes")
+                    
+                    return {
+                        "duplicate_groups": len(duplicates),
+                        "duplicate_nodes": total_duplicate_nodes,
+                        "deleted_count": deleted_count,
+                        "details": duplicates
+                    }
+                else:
+                    # Just report
+                    for dup in duplicates[:5]:  # Show first 5
+                        print(f"  Duplicate: commit={dup['commit_hash'][:8]} path={dup['path']} count={dup['count']}")
+                    if len(duplicates) > 5:
+                        print(f"  ... and {len(duplicates) - 5} more groups")
+                    
+                    return {
+                        "duplicate_groups": len(duplicates),
+                        "duplicate_nodes": total_duplicate_nodes,
+                        "deleted_count": 0,
+                        "details": duplicates
+                    }
+            else:
+                print("No duplicate FileChange nodes found")
+                return {
+                    "duplicate_groups": 0,
+                    "duplicate_nodes": 0,
+                    "deleted_count": 0,
+                    "details": []
+                }
+
     def create_constraints(self):
         """Create all required constraints for the new schema."""
+        # Check for and clean up FileChange duplicates before creating the constraint
+        print("Checking for duplicate FileChange nodes...")
+        duplicate_info = self.check_and_cleanup_filechange_duplicates(cleanup=True)
+        if duplicate_info["duplicate_groups"] > 0:
+            print(f"Cleaned up {duplicate_info['deleted_count']} duplicate FileChange nodes before applying constraint")
+        
         with self._driver.session() as session:
             constraints = [
                 # Commits
@@ -363,6 +455,8 @@ class Neo4jDriver:
                 "CREATE CONSTRAINT pgpkey_unique IF NOT EXISTS FOR (k:PGPKey) REQUIRE k.fingerprint IS UNIQUE",
                 # Ingest Runs
                 "CREATE CONSTRAINT ingestrun_unique IF NOT EXISTS FOR (ir:IngestRun) REQUIRE ir.id IS UNIQUE",
+                # FileChanges - ensure uniqueness per commit+path
+                "CREATE CONSTRAINT filechange_unique IF NOT EXISTS FOR (fc:FileChange) REQUIRE (fc.commit_hash, fc.path) IS UNIQUE",
             ]
             
             for constraint_query in constraints:
