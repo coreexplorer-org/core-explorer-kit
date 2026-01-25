@@ -11,9 +11,8 @@ SENSITIVE_PATHS = [
     "src/policy",
     "src/consensus",
     "src/rpc/mempool.cpp",
-    "contrib/builder-keys",  # Maintainer key list
-    "release",  # Release scripts
-    "build",  # Build/release pipeline
+    "contrib/verify-commits",  # Maintainer key list is here: contrib/verify-commits/trusted-keys
+    "contrib/verify-binaries"
 ]
 
 
