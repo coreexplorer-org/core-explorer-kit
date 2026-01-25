@@ -136,7 +136,7 @@ core-explorer-kit/
 The project uses Docker Compose to orchestrate three main services:
 
 1. **neo4j** (Database)
-   - **Image**: `neo4j:latest`
+   - **Image**: `neo4j:5.20.0`
    - **Ports**: `7474` (HTTP), `7687` (Bolt protocol)
    - **Volume**: `./data/neo4j:/data` - Persists database files
    - **Health Check**: Waits for Neo4j to be ready before starting dependent services
@@ -146,7 +146,8 @@ The project uses Docker Compose to orchestrate three main services:
    - **Build**: `./backend` (uses `backend/Dockerfile`)
    - **Ports**: `5000:5000`
    - **Volumes**: 
-     - `./data/user_supplied_repo:/app/bitcoin` - Git repository access
+     - `./backend/app:/app` - App code for live reloading
+     - `${USER_SUPPLIED_REPO_PATH}:/app/bitcoin` - Git repository access (environment-configurable)
    - **Dependencies**: Waits for `neo4j` health check
    - **Network**: Connects to `appnet` to communicate with Neo4j
 
@@ -232,7 +233,7 @@ pipenv install --dev
 3. **Start the Flask server with live reload:** `FLASK_APP=app.app FLASK_RUN_PORT=5000 flask run --debug`. The app will connect to the Neo4j container via the hostname defined in `backend/app/config.py`.
 4. **Iterate:** edit files under `backend/app/` and Flask reloads automatically. Hit `http://localhost:5000/api/graphql` (direct) or `http://localhost:8080/api/graphql` (via nginx) to interact with GraphQL.
 
-To stop everything, exit the Pipenv shell and run `docker compose down` from the repository root. Add `-v` if you purposely want to blow away the Neo4j data volume.
+To stop everything, exit the Pipenv shell and run `docker compose down` from the repository root. If you need to reset Neo4j data, delete the host folder at `./data/neo4j` (bind mount) before starting the stack again.
 
 ### Bootstrap scripts
 
@@ -248,7 +249,7 @@ For local development or single-user setups:
 
 This script:
 - Clones the repository to `~/core-explorer-kit` if not present
-- Pulls latest changes from `origin/main`
+- Resets the cloned repo to the newest `origin/main` state (discarding local changes)
 - **Checks for `.env` file** and prompts to create it if missing
 - Rebuilds the backend Docker image
 - Starts Neo4j, backend, and nginx services
@@ -265,11 +266,33 @@ For production deployments on dedicated servers:
 This script:
 - Must be run as the `deploy` user (enforces security)
 - Clones/updates repository to `/opt/core-explorer-kit`
+- Resets the cloned repo to the newest `origin/main` state (discarding local changes)
 - **Checks for `.env` file** and prompts to create it if missing
 - Links persistent data storage from `/srv/core-explorer-kit/data`
 - Pulls pre-built Docker images (no local builds)
 - Starts the stack with production-ready configuration
 - Configures git `safe.directory` for the mounted repository (reads `CONTAINER_SIDE_REPOSITORY_PATH` from `.env`)
+
+#### Production: safe reset sequence (Neo4j v5 upgrade)
+
+If you are intentionally discarding Neo4j data during a production upgrade, follow this exact sequence to avoid bind-mount confusion:
+
+1. Stop the stack from `/opt/core-explorer-kit`:
+   ```bash
+   docker compose down
+   ```
+2. Remove the host data directory (this is the bind mount target):
+   ```bash
+   rm -rf /srv/core-explorer-kit/data/neo4j
+   ```
+   If you are running from the repo directory and `./data` is a symlink to `/srv/core-explorer-kit/data`, the equivalent is:
+   ```bash
+   rm -rf ./data/neo4j
+   ```
+3. Re-run the production bootstrap:
+   ```bash
+   ./scripts/bootstrap-sov-stack.sh
+   ```
 
 #### Environment Configuration
 
