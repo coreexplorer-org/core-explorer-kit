@@ -133,6 +133,10 @@ The schema supports powerful analysis queries such as:
 
 ## Project Structure
 
+
+### NOTE THAT THIS SECTION IS OUT OF DATE 
+
+
 The Core Explorer Kit is organized into several key directories, each serving a specific purpose in the data processing and visualization pipeline. Below is a detailed breakdown of the project structure, including Docker configuration and data dependencies.
 
 ```
@@ -145,33 +149,43 @@ core-explorer-kit/
 │   │   ├── git_processor.py          # Git repository processing logic
 │   │   ├── neo4j_driver.py           # Neo4j database connection & queries
 │   │   ├── commit_details.py         # Commit metadata extraction
-│   │   ├── merge_analyzer.py         # Merge ancestry analysis helpers
-│   │   └── signature_extractor.py    # PGP signature parsing and validation
-│   ├── tests/                        # Pytest suites
+│   │   └── config.py                 # Configuration (Neo4j connection, repo paths)
 │   ├── Dockerfile                    # Backend container build configuration
 │   ├── Pipfile                       # Python dependencies (pipenv)
-│   ├── Pipfile.lock                  # Locked dependency versions
-│   ├── pytest.ini                    # Pytest configuration
-│   ├── wsgi.ini                      # WSGI config (production)
-│   ├── wsgi2.ini                     # Alternate WSGI config
-│   └── wsgi.py                       # WSGI entry point
+│   └── wsgi.py                       # WSGI entry point for production
+│
+├── CE_demo/                          # Next.js frontend application
+│   ├── app/                          # Next.js app directory
+│   │   ├── api/                      # API route handlers
+│   │   ├── page.jsx                  # Main dashboard page
+│   │   └── pr/[id]/                  # Pull request detail pages
+│   ├── components/                   # React components
+│   ├── public/                       # Static assets
+│   ├── package.json                  # Node.js dependencies
+│   └── README.md                     # Frontend documentation
+│
+├── repo_explorer/                    # Ruby scripts for data processing
+│   ├── github_scrape_commits_or_pulls.rb  # GitHub API scraping
+│   ├── process_commit_data.rb        # Commit data processing
+│   └── README.md                     # Processing pipeline documentation
 │
 ├── frontend/                         # Static HTML frontend (served by nginx)
 │   ├── index.html                    # Landing page
 │   ├── project.html                  # Project view page
-│   ├── profile.html                  # Profile view page
-│   ├── INTERACTION_DIAGRAM.md        # Interaction diagram (markdown)
-│   └── interaction-diagram.md        # Alternate interaction diagram
+│   └── profile.html                  # Profile view page
 │
-├── scripts/                          # Bootstrap and reset helpers
-│   ├── bootstrap-stack.sh            # Local Docker bootstrap
-│   ├── bootstrap-sov-stack.sh        # SOV stack bootstrap
-│   └── reset-neo4j.sh                # Reset Neo4j data volume
+├── data/                             # Data persistence directory (⚠️ REQUIRED)
+│   ├── neo4j/                        # Neo4j database storage (Docker volume)
+│   │   ├── databases/                 # Neo4j database files
+│   │   └── transactions/             # Transaction logs
+│   │   └── [Persisted in Docker volume: ./data/neo4j:/data]
+│   │
+│   └── user_supplied_repo/           # Git repository to analyze (⚠️ REQUIRED)
+│       └── [Cloned repository, e.g., bitcoin/bitcoin]
+│       └── [Mounted to backend as: ./data/user_supplied_repo:/app/bitcoin]
 │
-├── .env.example                      # Example environment variables
 ├── docker-compose.yml                # Docker orchestration configuration
 ├── nginx.conf                        # Nginx reverse proxy configuration
-├── pyrightconfig.json                # Pyright configuration
 └── README.md                         # This file
 ```
 
