@@ -7,11 +7,6 @@ import config
 import time
 import json
 from git import Commit, Actor, Repo, TagReference
-import uuid
-
-def uuid4():  ## do we need this? 
-    """Generate a random UUID."""
-    return uuid.uuid4().hex
 
 
 class Neo4jDriver:
