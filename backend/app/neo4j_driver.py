@@ -629,3 +629,164 @@ class Neo4jDriver:
                 to_date=to_date,
                 source=source
             )
+
+    def batch_upsert_pgp_keys(self, key_rows: List[Dict[str, Any]], batch_size: int = 1000):
+        """
+        Batch upsert PGPKey nodes.
+        
+        Args:
+            key_rows: List of dicts with keys: fingerprint, createdAt (optional), revokedAt (optional)
+            batch_size: Number of keys to process per transaction
+        """
+        if not key_rows:
+            return
+        
+        for i in range(0, len(key_rows), batch_size):
+            batch = key_rows[i:i + batch_size]
+            with self._driver.session() as session:
+                session.execute_write(self._batch_upsert_pgp_keys_tx, batch)
+            if len(key_rows) > batch_size:
+                print(f"Processed PGP key batch {i//batch_size + 1}/{(len(key_rows)-1)//batch_size + 1}")
+
+    @staticmethod
+    def _batch_upsert_pgp_keys_tx(tx, rows: List[Dict[str, Any]]):
+        """Transaction function for batch PGP key upsert."""
+        query = """
+        UNWIND $rows AS row
+
+        MERGE (k:PGPKey {fingerprint: row.fingerprint})
+        ON CREATE SET
+          k.createdAt = row.createdAt,
+          k.revokedAt = row.revokedAt
+        ON MATCH SET
+          k.createdAt = coalesce(row.createdAt, k.createdAt),
+          k.revokedAt = coalesce(row.revokedAt, k.revokedAt)
+        """
+        tx.run(query, rows=rows)
+
+    def batch_create_signatures(
+        self, 
+        signature_rows: List[Dict[str, Any]], 
+        batch_size: int = 1000
+    ):
+        """
+        Batch create HAS_SIGNATURE relationships.
+        
+        Args:
+            signature_rows: List of dicts with keys:
+                - artifact_type: "Commit" or "TagObject"
+                - artifact_id: commit_hash or tag name
+                - fingerprint: PGP key fingerprint
+                - valid: boolean or None
+                - method: "gpg"
+            batch_size: Number of signatures to process per transaction
+        """
+        if not signature_rows:
+            return
+        
+        for i in range(0, len(signature_rows), batch_size):
+            batch = signature_rows[i:i + batch_size]
+            with self._driver.session() as session:
+                session.execute_write(self._batch_create_signatures_tx, batch)
+            if len(signature_rows) > batch_size:
+                print(f"Processed signature batch {i//batch_size + 1}/{(len(signature_rows)-1)//batch_size + 1}")
+
+    @staticmethod
+    def _batch_create_signatures_tx(tx, rows: List[Dict[str, Any]]):
+        """Transaction function for batch signature creation (Neo4j 4.x compatible)."""
+        # Process commits and tags separately for compatibility
+        commit_rows = [r for r in rows if r.get('artifact_type') == 'Commit']
+        tag_rows = [r for r in rows if r.get('artifact_type') == 'TagObject']
+        
+        # Process commits
+        if commit_rows:
+            query_commits = """
+            UNWIND $rows AS row
+            MATCH (artifact:Commit {commit_hash: row.artifact_id})
+            MERGE (k:PGPKey {fingerprint: row.fingerprint})
+            MERGE (artifact)-[hs:HAS_SIGNATURE]->(k)
+            SET hs.valid = row.valid,
+                hs.method = row.method,
+                hs.signer_fp = row.fingerprint
+            """
+            tx.run(query_commits, rows=commit_rows)
+        
+        # Process tags
+        if tag_rows:
+            query_tags = """
+            UNWIND $rows AS row
+            MATCH (artifact:TagObject {name: row.artifact_id})
+            MERGE (k:PGPKey {fingerprint: row.fingerprint})
+            MERGE (artifact)-[hs:HAS_SIGNATURE]->(k)
+            SET hs.valid = row.valid,
+                hs.method = row.method,
+                hs.signer_fp = row.fingerprint
+            """
+            tx.run(query_tags, rows=tag_rows)
+
+    def batch_mark_commits_checked_for_signatures(self, commit_shas: List[str], batch_size: int = 1000):
+        """
+        Mark commits as checked for signatures (even if they don't have signatures).
+        This allows us to skip already-checked commits on subsequent runs.
+        
+        Args:
+            commit_shas: List of commit hashes to mark as checked
+            batch_size: Number of commits to process per transaction
+        """
+        if not commit_shas:
+            return
+        
+        for i in range(0, len(commit_shas), batch_size):
+            batch = commit_shas[i:i + batch_size]
+            with self._driver.session() as session:
+                session.execute_write(self._batch_mark_commits_checked_tx, batch)
+            if len(commit_shas) > batch_size:
+                print(f"Marked {min(i + batch_size, len(commit_shas))}/{len(commit_shas)} commits as checked")
+
+    @staticmethod
+    def _batch_mark_commits_checked_tx(tx, commit_shas: List[str]):
+        """Transaction function for marking commits as checked for signatures."""
+        query = """
+        UNWIND $commit_shas AS sha
+        MATCH (c:Commit {commit_hash: sha})
+        SET c.signature_checked = true
+        """
+        tx.run(query, commit_shas=commit_shas)
+
+    def batch_create_merged_includes(
+        self,
+        merge_rows: List[Dict[str, Any]],
+        batch_size: int = 1000
+    ):
+        """
+        Batch create MERGED_INCLUDES relationships.
+        
+        Args:
+            merge_rows: List of dicts with keys:
+                - merge_sha: SHA of merge commit
+                - included_shas: List of commit SHAs introduced by merge
+            batch_size: Number of merges to process per transaction
+        """
+        if not merge_rows:
+            return
+        
+        for i in range(0, len(merge_rows), batch_size):
+            batch = merge_rows[i:i + batch_size]
+            with self._driver.session() as session:
+                session.execute_write(self._batch_create_merged_includes_tx, batch)
+            if len(merge_rows) > batch_size:
+                print(f"Processed MERGED_INCLUDES batch {i//batch_size + 1}/{(len(merge_rows)-1)//batch_size + 1}")
+
+    @staticmethod
+    def _batch_create_merged_includes_tx(tx, rows: List[Dict[str, Any]]):
+        """Transaction function for batch MERGED_INCLUDES creation."""
+        query = """
+        UNWIND $rows AS row
+        MATCH (merge:Commit {commit_hash: row.merge_sha})
+        WHERE merge.isMerge = true
+        
+        UNWIND row.included_shas AS included_sha
+        MATCH (included:Commit {commit_hash: included_sha})
+        MERGE (merge)-[:MERGED_INCLUDES]->(included)
+        """
+        tx.run(query, rows=rows)

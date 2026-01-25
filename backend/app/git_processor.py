@@ -4,12 +4,15 @@ from __future__ import annotations
 from typing import Iterable, Sequence, List, Dict, Any, Optional, Set
 from datetime import datetime
 import uuid
+import json
 
 from git import Repo, Commit, TagReference
 import config
 from neo4j_driver import Neo4jDriver
 from commit_details import CommitDetails
 from file_change_processor import compute_file_changes, compute_file_changes_for_paths, SENSITIVE_PATHS
+from signature_extractor import extract_commit_signature, extract_tag_signature
+from merge_analyzer import compute_merged_commits
 
 def merge_parents(db, commit):
     for parent in commit.parents:
@@ -84,6 +87,18 @@ def process_git_data(
             # Create Git-native events (scaffolding for future multi-source integration)
             print("Creating Git-native events...")
             create_git_events(repo, db, commit_limit=commit_limit)
+            
+            # Process PGP signatures for commits
+            print("Processing PGP signatures for commits...")
+            process_commit_signatures(repo, db, commit_limit=commit_limit)
+            
+            # Process PGP signatures for tags
+            print("Processing PGP signatures for tags...")
+            process_tag_signatures(repo, db)
+            
+            # Process MERGED_INCLUDES for merge commits
+            print("Computing MERGED_INCLUDES relationships...")
+            process_merged_includes(repo, db, merge_limit=None)
         else:
             # Legacy import path
             status_flag = db.merge_import_status()
@@ -496,6 +511,473 @@ def create_git_events(repo: Repo, db: Neo4jDriver, commit_limit: Optional[int] =
             db.batch_create_events(batch_events)
         
         print(f"Created {event_count} Git-native events")
+
+
+def process_commit_signatures(
+    repo: Repo, 
+    db: Neo4jDriver, 
+    commit_limit: Optional[int] = None
+):
+    """
+    Extract and store PGP signatures for commits already in the database.
+    
+    This function works on existing commits, making it safe to run independently.
+    It queries for commits without HAS_SIGNATURE relationships and processes them.
+    
+    Args:
+        repo: Git repository
+        db: Neo4j driver
+        commit_limit: Optional limit on number of commits to process
+    """
+    BATCH_SIZE = 100
+    
+    # Query database for commits that don't have signatures yet
+    with db._driver.session() as session:
+        # Get total commit count
+        total_commits_result = session.run("MATCH (c:Commit) RETURN count(c) AS count")
+        total_commits_record = total_commits_result.single()
+        total_commits = total_commits_record["count"] if total_commits_record else 0
+        
+        # Count commits with signatures (may produce warnings if relationship type doesn't exist yet, but query still works)
+        commits_with_sigs_result = session.run("MATCH (c:Commit)-[:HAS_SIGNATURE]->(:PGPKey) RETURN count(DISTINCT c) AS count")
+        commits_with_sigs_record = commits_with_sigs_result.single()
+        commits_with_sigs = commits_with_sigs_record["count"] if commits_with_sigs_record else 0
+        
+        # Count commits already checked for signatures
+        checked_commits_result = session.run("MATCH (c:Commit) WHERE c.signature_checked = true RETURN count(c) AS count")
+        checked_commits_record = checked_commits_result.single()
+        checked_commits = checked_commits_record["count"] if checked_commits_record else 0
+        
+        if commit_limit:
+            query = """
+            MATCH (c:Commit)
+            WHERE (c.signature_checked IS NULL OR c.signature_checked = false)
+            AND NOT (c)-[:HAS_SIGNATURE]->(:PGPKey)
+            RETURN c.commit_hash AS sha
+            ORDER BY c.committedAt DESC
+            LIMIT $limit
+            """
+            result = session.run(query, limit=commit_limit)
+        else:
+            query = """
+            MATCH (c:Commit)
+            WHERE (c.signature_checked IS NULL OR c.signature_checked = false)
+            AND NOT (c)-[:HAS_SIGNATURE]->(:PGPKey)
+            RETURN c.commit_hash AS sha
+            """
+            result = session.run(query)
+        
+        commit_shas = [record["sha"] for record in result]
+    
+    if not commit_shas:
+        print("No commits without signatures found")
+        return
+    
+    commits_without_sigs = total_commits - commits_with_sigs
+    print(f"Signature processing status: {total_commits} total commits, {checked_commits} already checked (skipped), {commits_with_sigs} have signatures, {len(commit_shas)} need processing")
+    print(f"Processing signatures for {len(commit_shas)} commits")
+    
+    # Diagnostic: Test a few commits to see what git actually outputs
+    print("Testing signature extraction on sample commits...")
+    sample_commits = commit_shas[:10]
+    for test_sha in sample_commits:
+        try:
+            import subprocess
+            test_commit = repo.commit(test_sha)
+            git_result = subprocess.run(
+                ['git', 'show', '--show-signature', test_sha],
+                cwd=repo.working_dir or repo.git_dir,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            # Check both stdout and stderr
+            combined_output = (git_result.stdout or '') + '\n' + (git_result.stderr or '')
+            has_sig_markers = any(marker in combined_output.lower() for marker in ['gpg', 'signature', 'fingerprint', 'key id'])
+            
+            extracted = extract_commit_signature(test_commit)
+            if extracted and extracted.get('fingerprint'):
+                print(f"  ✓ {test_sha[:8]}: Found signature {extracted['fingerprint'][:16]}...")
+            elif has_sig_markers:
+                print(f"  ⚠ {test_sha[:8]}: Git output has signature markers but extraction failed")
+                # Show a snippet
+                sig_lines = [l for l in combined_output.split('\n') if any(m in l.lower() for m in ['gpg', 'signature', 'fingerprint'])][:3]
+                if sig_lines:
+                    print(f"    Sample: {sig_lines[0][:80]}")
+            else:
+                # Only show first 2 to avoid spam
+                if test_sha == sample_commits[0]:
+                    print(f"  - {test_sha[:8]}: No signature indicators in git output")
+        except Exception as e:
+            if test_sha == sample_commits[0]:
+                print(f"  ✗ {test_sha[:8]}: Error - {e}")
+    
+    # Check current database state
+    with db._driver.session() as session:
+        existing_keys_record = session.run("MATCH (k:PGPKey) RETURN count(k) AS count").single()
+        existing_keys = existing_keys_record["count"] if existing_keys_record else 0
+        
+        existing_sigs_record = session.run("MATCH ()-[r:HAS_SIGNATURE]->() RETURN count(r) AS count").single()
+        existing_sigs = existing_sigs_record["count"] if existing_sigs_record else 0
+        
+        # Check what has signatures (commits vs tags)
+        commit_sigs_record = session.run("MATCH (c:Commit)-[:HAS_SIGNATURE]->() RETURN count(DISTINCT c) AS count").single()
+        commit_sigs = commit_sigs_record["count"] if commit_sigs_record else 0
+        
+        tag_sigs_record = session.run("MATCH (t:TagObject)-[:HAS_SIGNATURE]->() RETURN count(DISTINCT t) AS count").single()
+        tag_sigs = tag_sigs_record["count"] if tag_sigs_record else 0
+        
+        print(f"Database state: {existing_sigs} signatures ({commit_sigs} commits, {tag_sigs} tags), {existing_keys} PGP keys")
+    
+    # Extract signatures and collect data in batches
+    key_rows = []
+    signature_rows = []
+    seen_fingerprints = set()
+    
+    # Track statistics across batches
+    total_signed = 0
+    total_unsigned = 0
+    
+    # Track sample fingerprints for diagnostics
+    sample_fingerprints = []
+    
+    # Track errors for debugging
+    error_count = 0
+    sample_errors = []  # Keep first few errors for debugging
+    
+    # Track processed commits to mark as checked (both signed and unsigned)
+    processed_commits = []
+    
+    for i, sha in enumerate(commit_shas, 1):
+        try:
+            commit = repo.commit(sha)
+            sig_data = extract_commit_signature(commit)
+            
+            # Track this commit as processed (will be marked as checked)
+            processed_commits.append(sha)
+            
+            if sig_data and sig_data.get('fingerprint'):
+                fingerprint = sig_data['fingerprint']
+                
+                # Validate fingerprint format (should be 40 hex chars)
+                if len(fingerprint) != 40 or not all(c in '0123456789ABCDEF' for c in fingerprint):
+                    # Skip invalid fingerprints (likely false positives from parsing)
+                    if i <= 10:  # Only log first few
+                        print(f"  Warning: Invalid fingerprint format for commit {sha[:8]}: {fingerprint[:20]}...")
+                    total_unsigned += 1
+                    continue
+                
+                # Collect unique PGP keys
+                if fingerprint not in seen_fingerprints:
+                    key_rows.append({
+                        'fingerprint': fingerprint,
+                        'createdAt': None,  # Can be populated later
+                        'revokedAt': None
+                    })
+                    seen_fingerprints.add(fingerprint)
+                
+                # Collect signature relationships
+                signature_rows.append({
+                    'artifact_type': 'Commit',
+                    'artifact_id': sha,
+                    'fingerprint': fingerprint,
+                    'valid': sig_data.get('valid'),
+                    'method': sig_data.get('method', 'gpg')
+                })
+                total_signed += 1
+            else:
+                total_unsigned += 1
+        except Exception as e:
+            error_count += 1
+            if len(sample_errors) < 5:
+                sample_errors.append(f"{sha[:8]}: {str(e)}")
+            if error_count <= 10 or error_count % 1000 == 0:
+                print(f"Error processing signature for commit {sha[:8]}: {e}")
+            total_unsigned += 1
+            # Still mark as processed even if there was an error
+            processed_commits.append(sha)
+            continue
+        
+        # Save batch every BATCH_SIZE commits
+        if i % BATCH_SIZE == 0:
+            # Save keys first
+            if key_rows:
+                db.batch_upsert_pgp_keys(key_rows)
+                key_rows = []  # Clear after saving
+            
+            # Save signatures
+            if signature_rows:
+                db.batch_create_signatures(signature_rows)
+                signature_rows = []  # Clear after saving
+            
+            # Mark all processed commits in this batch as checked
+            if processed_commits:
+                db.batch_mark_commits_checked_for_signatures(processed_commits)
+                processed_commits = []  # Clear after marking
+            
+            # Verify database state after batch save
+            with db._driver.session() as session:
+                # Count total PGP keys in DB
+                key_count_result = session.run("MATCH (k:PGPKey) RETURN count(k) AS count")
+                key_count_record = key_count_result.single()
+                key_count = key_count_record["count"] if key_count_record else 0
+                
+                # Count total signature relationships in DB
+                sig_count_result = session.run("MATCH ()-[r:HAS_SIGNATURE]->() RETURN count(r) AS count")
+                sig_count_record = sig_count_result.single()
+                sig_count = sig_count_record["count"] if sig_count_record else 0
+                
+                # Calculate key reuse ratio (signatures per key)
+                ratio = sig_count / key_count if key_count > 0 else 0
+                print(f"Processed {i}/{len(commit_shas)} commits... (found {total_signed} signed, {total_unsigned} unsigned so far) [DB: {sig_count} signatures, {key_count} keys, {ratio:.1f} sigs/key]")
+                
+                # Show sample fingerprints on first batch
+                if i == BATCH_SIZE and sample_fingerprints:
+                    print(f"  Sample fingerprints found: {', '.join([f'{sha}:{fp[:16]}...' for sha, fp in sample_fingerprints])}")
+                
+                # Show sample fingerprints on first batch
+                if i == BATCH_SIZE and sample_fingerprints:
+                    print(f"  Sample fingerprints found: {', '.join([f'{sha}:{fp[:16]}...' for sha, fp in sample_fingerprints])}")
+    
+    # Save remaining data (final batch)
+    if key_rows:
+        db.batch_upsert_pgp_keys(key_rows)
+        print(f"Upserted {len(key_rows)} PGP keys")
+    
+    if signature_rows:
+        db.batch_create_signatures(signature_rows)
+        print(f"Created {len(signature_rows)} signature relationships")
+    
+    # Mark all remaining processed commits as checked
+    if processed_commits:
+        db.batch_mark_commits_checked_for_signatures(processed_commits)
+        print(f"Marked {len(processed_commits)} commits as checked for signatures")
+    
+    # Verify final database state
+    with db._driver.session() as session:
+        # Count total PGP keys in DB
+        key_count_result = session.run("MATCH (k:PGPKey) RETURN count(k) AS count")
+        key_count_record = key_count_result.single()
+        total_keys_in_db = key_count_record["count"] if key_count_record else 0
+        
+        # Count total signature relationships in DB
+        sig_count_result = session.run("MATCH ()-[r:HAS_SIGNATURE]->() RETURN count(r) AS count")
+        sig_count_record = sig_count_result.single()
+        total_sigs_in_db = sig_count_record["count"] if sig_count_record else 0
+        
+        # Count commits with signatures
+        commit_sig_count_result = session.run("MATCH (c:Commit)-[:HAS_SIGNATURE]->() RETURN count(DISTINCT c) AS count")
+        commit_sig_count_record = commit_sig_count_result.single()
+        commits_with_sigs = commit_sig_count_record["count"] if commit_sig_count_record else 0
+    
+    # Print final summary
+    print(f"Completed: processed {len(commit_shas)} commits, found {total_signed} signed, {total_unsigned} unsigned")
+    print(f"Database state: {total_sigs_in_db} signature relationships, {total_keys_in_db} PGP keys, {commits_with_sigs} commits with signatures")
+    if error_count > 0:
+        print(f"Encountered {error_count} errors during processing")
+        if sample_errors:
+            print(f"Sample errors: {', '.join(sample_errors)}")
+
+
+def process_tag_signatures(repo: Repo, db: Neo4jDriver):
+    """
+    Extract and store PGP signatures for tags already in the database.
+    
+    This function works on existing tags, making it safe to run independently.
+    It queries for TagObjects without HAS_SIGNATURE relationships and processes them.
+    
+    Args:
+        repo: Git repository
+        db: Neo4j driver
+    """
+    # Query database for TagObjects that don't have signatures yet
+    with db._driver.session() as session:
+        query = """
+        MATCH (to:TagObject)
+        WHERE NOT (to)-[:HAS_SIGNATURE]->(:PGPKey)
+        RETURN to.name AS name
+        """
+        result = session.run(query)
+        tag_names = [record["name"] for record in result]
+    
+    if not tag_names:
+        print("No tags without signatures found")
+        return
+    
+    print(f"Processing signatures for {len(tag_names)} tags")
+    
+    # Extract signatures and collect data
+    key_rows = []
+    signature_rows = []
+    seen_fingerprints = set()
+    
+    for tag_name in tag_names:
+        try:
+            tag_ref = repo.tags[tag_name]
+            sig_data = extract_tag_signature(tag_ref)
+            
+            if sig_data and sig_data.get('fingerprint'):
+                fingerprint = sig_data['fingerprint']
+                
+                # Collect unique PGP keys
+                if fingerprint not in seen_fingerprints:
+                    key_rows.append({
+                        'fingerprint': fingerprint,
+                        'createdAt': None,  # Can be populated later
+                        'revokedAt': None
+                    })
+                    seen_fingerprints.add(fingerprint)
+                
+                # Collect signature relationships
+                signature_rows.append({
+                    'artifact_type': 'TagObject',
+                    'artifact_id': tag_name,
+                    'fingerprint': fingerprint,
+                    'valid': sig_data.get('valid'),
+                    'method': sig_data.get('method', 'gpg')
+                })
+        except Exception as e:
+            print(f"Error processing signature for tag {tag_name}: {e}")
+            continue
+    
+    # Batch upsert PGP keys
+    if key_rows:
+        db.batch_upsert_pgp_keys(key_rows)
+        print(f"Upserted {len(key_rows)} PGP keys")
+    
+    # Batch create signature relationships
+    if signature_rows:
+        db.batch_create_signatures(signature_rows)
+        print(f"Created {len(signature_rows)} signature relationships")
+    
+    unsigned_count = len(tag_names) - len(signature_rows)
+    if unsigned_count > 0:
+        print(f"Found {unsigned_count} unsigned tags")
+
+
+def process_merged_includes(
+    repo: Repo,
+    db: Neo4jDriver,
+    merge_limit: Optional[int] = None
+):
+    """
+    Compute and store MERGED_INCLUDES relationships for merge commits.
+    
+    This function works on existing merge commits in the database,
+    making it safe to run independently. It queries for merge commits
+    without MERGED_INCLUDES relationships and processes them.
+    
+    Args:
+        repo: Git repository
+        db: Neo4j driver
+        merge_limit: Optional limit on number of merges to process
+    """
+    BATCH_SIZE = 100
+    
+    # Query database for merge commits without MERGED_INCLUDES relationships
+    with db._driver.session() as session:
+        # Get total merge commit count
+        total_merges_result = session.run("MATCH (c:Commit {isMerge: true}) RETURN count(c) AS count")
+        total_merges_record = total_merges_result.single()
+        total_merges = total_merges_record["count"] if total_merges_record else 0
+        
+        # Count merges with MERGED_INCLUDES relationships
+        # May produce warnings if relationship type doesn't exist yet, but query still works
+        merges_with_includes_result = session.run(
+            "MATCH (c:Commit {isMerge: true})-[:MERGED_INCLUDES]->() RETURN count(DISTINCT c) AS count"
+        )
+        merges_with_includes_record = merges_with_includes_result.single()
+        merges_with_includes = merges_with_includes_record["count"] if merges_with_includes_record else 0
+        
+        if merge_limit:
+            query = """
+            MATCH (c:Commit {isMerge: true})
+            WHERE NOT (c)-[:MERGED_INCLUDES]->()
+            RETURN c.commit_hash AS sha
+            ORDER BY c.committedAt DESC
+            LIMIT $limit
+            """
+            result = session.run(query, limit=merge_limit)
+        else:
+            query = """
+            MATCH (c:Commit {isMerge: true})
+            WHERE NOT (c)-[:MERGED_INCLUDES]->()
+            RETURN c.commit_hash AS sha
+            ORDER BY c.committedAt DESC
+            """
+            result = session.run(query)
+        
+        merge_shas = [record["sha"] for record in result]
+    
+    if not merge_shas:
+        print("No merge commits without MERGED_INCLUDES relationships found")
+        return
+    
+    print(f"MERGED_INCLUDES processing status: {total_merges} total merges, {merges_with_includes} already processed, {len(merge_shas)} need processing")
+    print(f"Processing MERGED_INCLUDES for {len(merge_shas)} merge commits")
+    
+    # Process merges and collect data in batches
+    merge_rows = []
+    
+    # Track statistics across batches
+    total_processed = 0
+    total_relationships = 0
+    error_count = 0
+    
+    for i, merge_sha in enumerate(merge_shas, 1):
+        try:
+            merge_commit = repo.commit(merge_sha)
+            
+            # Compute commits introduced by this merge
+            included_shas = compute_merged_commits(merge_commit, repo)
+            
+            if included_shas:
+                # Collect data for batch creation
+                merge_rows.append({
+                    'merge_sha': merge_sha,
+                    'included_shas': included_shas
+                })
+                total_relationships += len(included_shas)
+            
+            total_processed += 1
+            
+        except Exception as e:
+            error_count += 1
+            if error_count <= 10 or error_count % 100 == 0:
+                print(f"Error processing merge {merge_sha[:8]}: {e}")
+            continue
+        
+        # Save batch every BATCH_SIZE merges
+        if i % BATCH_SIZE == 0:
+            if merge_rows:
+                db.batch_create_merged_includes(merge_rows)
+                print(f"Processed {i}/{len(merge_shas)} merges... (created {total_relationships} MERGED_INCLUDES relationships so far)")
+                merge_rows = []  # Clear after saving
+    
+    # Save remaining data (final batch)
+    if merge_rows:
+        db.batch_create_merged_includes(merge_rows)
+        print(f"Created {len(merge_rows)} merge relationships in final batch")
+    
+    # Verify final database state
+    with db._driver.session() as session:
+        # Count total MERGED_INCLUDES relationships
+        includes_count_result = session.run("MATCH ()-[r:MERGED_INCLUDES]->() RETURN count(r) AS count")
+        includes_count_record = includes_count_result.single()
+        total_includes_in_db = includes_count_record["count"] if includes_count_record else 0
+        
+        # Count merges with MERGED_INCLUDES
+        merges_with_includes_result = session.run(
+            "MATCH (c:Commit {isMerge: true})-[:MERGED_INCLUDES]->() RETURN count(DISTINCT c) AS count"
+        )
+        merges_with_includes_record = merges_with_includes_result.single()
+        merges_with_includes_final = merges_with_includes_record["count"] if merges_with_includes_record else 0
+    
+    print(f"Completed: processed {total_processed} merges, created {total_relationships} MERGED_INCLUDES relationships")
+    print(f"Database state: {total_includes_in_db} total MERGED_INCLUDES relationships, {merges_with_includes_final} merges with relationships")
+    if error_count > 0:
+        print(f"Encountered {error_count} errors during processing")
+
 
 if __name__ == "__main__":
     process_git_data()

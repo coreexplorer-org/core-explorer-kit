@@ -9,7 +9,8 @@ RUN apk add --no-cache \
     pcre-dev \
     libpq \
     postgresql-dev \
-    git 
+    git \
+    gnupg 
 
 # Allow Git inside the container to read the mounted Bitcoin repo owned by the host user.
 RUN git config --global --add safe.directory /app/bitcoin
