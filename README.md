@@ -71,11 +71,65 @@ These constraints ensure data integrity and enable efficient lookups and merges 
 ### Query Patterns Enabled
 
 The schema supports powerful analysis queries such as:
-- **Self-merge detection**: Find commits where the author and committer are the same
 - **Sensitive path analysis**: Track changes to critical code paths (e.g., consensus, policy)
+  ```cypher
+  MATCH (c:Commit)-[:HAS_CHANGE]->(fc:FileChange)-[:OF_PATH]->(p:Path)
+  WHERE p.path STARTS WITH "src/consensus"
+  RETURN c, fc, p
+  ORDER BY c.authoredAt DESC
+  LIMIT 50;
+  ```
 - **Merge ancestry analysis**: Identify which commits were introduced by each merge
-- **Temporal ref tracking**: Detect force-pushes and history rewrites by comparing RefState snapshots
+  ```cypher
+  MATCH (m:Commit {isMerge: true})-[:MERGED_INCLUDES]->(a:Commit)
+  RETURN m, collect(a) AS introduced_commits
+  ORDER BY m.committedAt DESC
+  LIMIT 20;
+  ```
+- **Temporal ref tracking**: Show commits added to main, between tagged releases. include nodes that help to illustrate "who contributed to this release?"
+  ```cypher
+  MATCH (tagRef:Ref {kind: "tag"})-[:POINTS_TO]->(tag:TagObject)-[:TAG_OF]->(tagTip:Commit)
+  WHERE tag.name IN ["v30.2", "v28.1"]
+  WITH tagRef, tag, tagTip ORDER BY tag.taggerAt DESC
+  WITH collect({ref: tagRef, tag: tag, tip: tagTip}) AS tags
+  WITH tags[0] AS newer, tags[1] AS older
+  WITH newer, older, newer.tip AS newerTip, older.tip AS olderTip
+  MATCH (newerTip)-[:HAS_PARENT*0..]->(c:Commit)
+  WHERE NOT EXISTS {
+    MATCH (olderTip)-[:HAS_PARENT*0..]->(c)
+  }
+  OPTIONAL MATCH (author:Identity)-[:AUTHORED]->(c)
+  RETURN newer.ref AS newer_tag_ref, newer.tag AS newer_tag, newer.tip AS newer_tip,
+         older.ref AS older_tag_ref, older.tag AS older_tag, older.tip AS older_tip,
+         c, author
+  LIMIT 200;
+  ```
+  
+  - **Temporal ref tracking**: Detect force-pushes and history rewrites by comparing RefState snapshots
+  ```cypher
+  // NOTE THAT THIS WILL ONLY SHOW FORCE PUSH SINCE YOUR LAST IngestRun
+  
+  MATCH (run:IngestRun)-[:SAW_REF]->(r:RefState)-[:POINTS_TO]->(c:Commit)
+  WHERE r.kind = "branch" AND r.name = "main"
+  WITH run, r, c ORDER BY run.pulledAt DESC
+  WITH collect({run: run, state: r, commit: c}) AS states
+  UNWIND range(0, size(states) - 2) AS idx
+  WITH states[idx] AS newer, states[idx + 1] AS older
+  WITH newer, older, newer.commit AS newerCommit, older.commit AS olderCommit
+  WHERE NOT EXISTS {
+    MATCH (newerCommit)-[:HAS_PARENT*0..]->(olderCommit)
+  }
+  RETURN newer.run AS newer_run, newer.state AS newer_ref, newerCommit AS newer_tip,
+         older.run AS older_run, older.state AS older_ref, olderCommit AS older_tip
+  LIMIT 10;
+  ```
 - **PGP signature auditing**: Track which commits and tags are signed, and by which keys
+  ```cypher
+  MATCH (c:Commit)-[:HAS_SIGNATURE]->(k:PGPKey)
+  WITH k, collect(c)[0..20] AS signed_commits, count(c) AS signed_count
+  RETURN k, signed_commits
+  ORDER BY signed_count DESC;
+  ```
 
 ## Project Structure
 
@@ -91,43 +145,33 @@ core-explorer-kit/
 │   │   ├── git_processor.py          # Git repository processing logic
 │   │   ├── neo4j_driver.py           # Neo4j database connection & queries
 │   │   ├── commit_details.py         # Commit metadata extraction
-│   │   └── config.py                 # Configuration (Neo4j connection, repo paths)
+│   │   ├── merge_analyzer.py         # Merge ancestry analysis helpers
+│   │   └── signature_extractor.py    # PGP signature parsing and validation
+│   ├── tests/                        # Pytest suites
 │   ├── Dockerfile                    # Backend container build configuration
 │   ├── Pipfile                       # Python dependencies (pipenv)
-│   └── wsgi.py                       # WSGI entry point for production
-│
-├── CE_demo/                          # Next.js frontend application
-│   ├── app/                          # Next.js app directory
-│   │   ├── api/                      # API route handlers
-│   │   ├── page.jsx                  # Main dashboard page
-│   │   └── pr/[id]/                  # Pull request detail pages
-│   ├── components/                   # React components
-│   ├── public/                       # Static assets
-│   ├── package.json                  # Node.js dependencies
-│   └── README.md                     # Frontend documentation
-│
-├── repo_explorer/                    # Ruby scripts for data processing
-│   ├── github_scrape_commits_or_pulls.rb  # GitHub API scraping
-│   ├── process_commit_data.rb        # Commit data processing
-│   └── README.md                     # Processing pipeline documentation
+│   ├── Pipfile.lock                  # Locked dependency versions
+│   ├── pytest.ini                    # Pytest configuration
+│   ├── wsgi.ini                      # WSGI config (production)
+│   ├── wsgi2.ini                     # Alternate WSGI config
+│   └── wsgi.py                       # WSGI entry point
 │
 ├── frontend/                         # Static HTML frontend (served by nginx)
 │   ├── index.html                    # Landing page
 │   ├── project.html                  # Project view page
-│   └── profile.html                  # Profile view page
+│   ├── profile.html                  # Profile view page
+│   ├── INTERACTION_DIAGRAM.md        # Interaction diagram (markdown)
+│   └── interaction-diagram.md        # Alternate interaction diagram
 │
-├── data/                             # Data persistence directory (⚠️ REQUIRED)
-│   ├── neo4j/                        # Neo4j database storage (Docker volume)
-│   │   ├── databases/                 # Neo4j database files
-│   │   └── transactions/             # Transaction logs
-│   │   └── [Persisted in Docker volume: ./data/neo4j:/data]
-│   │
-│   └── user_supplied_repo/           # Git repository to analyze (⚠️ REQUIRED)
-│       └── [Cloned repository, e.g., bitcoin/bitcoin]
-│       └── [Mounted to backend as: ./data/user_supplied_repo:/app/bitcoin]
+├── scripts/                          # Bootstrap and reset helpers
+│   ├── bootstrap-stack.sh            # Local Docker bootstrap
+│   ├── bootstrap-sov-stack.sh        # SOV stack bootstrap
+│   └── reset-neo4j.sh                # Reset Neo4j data volume
 │
+├── .env.example                      # Example environment variables
 ├── docker-compose.yml                # Docker orchestration configuration
 ├── nginx.conf                        # Nginx reverse proxy configuration
+├── pyrightconfig.json                # Pyright configuration
 └── README.md                         # This file
 ```
 
@@ -138,6 +182,7 @@ The project uses Docker Compose to orchestrate three main services:
 1. **neo4j** (Database)
    - **Image**: `neo4j:5.20.0`
    - **Ports**: `7474` (HTTP), `7687` (Bolt protocol)
+   - **Env File**: `.env` (uses `APP_NEO4J_USER` / `APP_NEO4J_PASSWORD`)
    - **Volume**: `./data/neo4j:/data` - Persists database files
    - **Health Check**: Waits for Neo4j to be ready before starting dependent services
    - **Dependencies**: None (starts first)
@@ -145,8 +190,11 @@ The project uses Docker Compose to orchestrate three main services:
 2. **backend** (Flask API)
    - **Build**: `./backend` (uses `backend/Dockerfile`)
    - **Ports**: `5000:5000`
-   - **Volumes**: 
+   - **Env File**: `.env`
+   - **Volumes**:
      - `./backend/app:/app` - App code for live reloading
+     - `./backend/wsgi.py:/app/wsgi.py` - WSGI entry point
+     - `./backend/wsgi.ini:/app/wsgi.ini` - WSGI configuration
      - `${USER_SUPPLIED_REPO_PATH}:/app/bitcoin` - Git repository access (environment-configurable)
    - **Dependencies**: Waits for `neo4j` health check
    - **Network**: Connects to `appnet` to communicate with Neo4j
@@ -166,9 +214,9 @@ The project uses Docker Compose to orchestrate three main services:
 
 **Required Data Directories:**
 
-1. **`data/user_supplied_repo/`** (⚠️ REQUIRED)
+1. **`data/user_supplied_repo/`** (⚠️ REQUIRED, or set `USER_SUPPLIED_REPO_PATH`)
    - **Purpose**: Contains the git repository to be analyzed
-   - **Setup**: Clone your target repository here (e.g., `git clone https://github.com/bitcoin/bitcoin.git user_supplied_repo`)
+   - **Setup**: Clone your target repository here (e.g., `git clone https://github.com/bitcoin/bitcoin.git data/user_supplied_repo`)
    - **Docker Mount**: Mounted to backend container at `/app/bitcoin`
    - **Used By**: `backend/app/git_processor.py` reads from `config.CONTAINER_SIDE_REPOSITORY_PATH`
 
@@ -178,9 +226,6 @@ The project uses Docker Compose to orchestrate three main services:
    - **Docker Mount**: Mounted to Neo4j container at `/data`
    - **Persistence**: Database data persists across container restarts
    - **Note**: Delete this folder to reset the database
-
-**Optional Data:**
-- `CE_demo/data/commits.csv` - Sample commit data for frontend development
 
 ### Key Configuration Files
 
