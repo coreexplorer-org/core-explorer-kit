@@ -502,75 +502,89 @@ http://localhost:8080/process_git_data_to_neo4j/
 
 **Note:** this is a synchronous call & will presently timeout in the browser for large `.git` repos (such as `bitcoin`)
 
-**Step 3: What Happens During First-Time Import**
+**Step 3: What Happens During Ingestion**
 
-When you trigger the processing endpoint for the first time:
+When you trigger the processing endpoint:
 
-1. **Import Status Check**: The system checks Neo4j for an `ImportStatus` node
-   - If it doesn't exist, creates one with `git_import_complete = false`
-   - This tracks whether the initial commit import has been completed
-
-2. **Initial Commit Processing** (if `git_import_complete = false`):
-   - Reads all commits from the git repository at `config.CONTAINER_SIDE_REPOSITORY_PATH`
-   - For each commit, creates:
-     - **Actor nodes** for authors and committers (with name and email)
-     - **Commit nodes** with commit hash, message, summary, parent SHAs, and dates
-     - **Relationships**: `AUTHORED` and `COMMITTED` edges between actors and commits
-   - Processes commits in chronological order (oldest first)
-   - **This can take a long time** for large repositories (Bitcoin Core has ~50,000+ commits)
-   - Updates `ImportStatus` to mark `git_import_complete = true` when finished
-
-3. **Subsequent Runs** (if `git_import_complete = true`):
-   - Skips the full commit import
-   - Processes specific file/folder paths for detailed analysis:
-     - `src/policy`
-     - `src/consensus`
-     - `src/rpc/mempool.cpp`
-   - Stores folder-level commit statistics in `FileDetailRecord` nodes
+1. **Background Execution**: The ingestion starts in a separate thread, returning an immediate **Run ID**.
+2. **Ingest Run Creation**: The system creates an `IngestRun` node with a `STARTED` status.
+3. **Commit Processing (Backbone)**:
+   - Reads commits from the git repository.
+   - For each commit, creates/updates:
+     - **Identity nodes** for authors and committers (with source, name, and email).
+     - **Commit nodes** with hash, message, summary, and timestamps.
+     - **Relationships**: `AUTHORED`, `COMMITTED`, and `HAS_PARENT` edges.
+   - Mark status as `COMMITS_COMPLETE` upon successful backbone sync.
+4. **Stage Gate Verification**:
+   - The system verifies the integrity of the commit backbone before proceeding.
+   - If verification fails (e.g., interrupted run), advanced analysis is skipped to protect data integrity.
+5. **Advanced Enrichment**:
+   - **PGP Signatures**: Extracts GPG signatures, creating `PGPKey` nodes.
+   - **File Changes**: Tracks additions/deletions for sensitive paths (e.g., `src/consensus`).
+   - **Merge Analysis**: Computes `MERGED_INCLUDES` relationships.
+6. **Completion**: The `IngestRun` status is updated to `COMPLETED`.
 
 **Step 4: Monitor Progress**
 
-You can monitor the import progress by:
+You can monitor the import progress in two ways:
 
-1. **Backend Logs**:
-   ```bash
-   docker compose logs -f backend
-   ```
-   Look for messages like:
-   - `"Import Process Status Result: {'git_import_complete': False, ...}"`
-   - `"Performing initial data import..."`
-   - `"Processed X commits into Neo4j."`
+1. **Status Endpoint**:
+   - Visit `http://localhost:8080/api/ingest_status/<run_id>/`
+   - Shows real-time status (e.g., `STARTED`, `COMMITS_COMPLETE`, `COMPLETED`) and counters for commits, signatures, and merges.
 
-2. **Neo4j Browser** (http://localhost:7474):
-   - Run queries to check node counts:
-   ```cypher
-   MATCH (a:Actor) RETURN count(a) as actors
-   MATCH (c:Commit) RETURN count(c) as commits
-   ```
+2. **Backend Logs**:
+   - `docker compose logs -f backend`
+   - Look for progress messages: `"Updated IngestRun <id> status to COMMITS_COMPLETE"`
 
 **Step 5: Verify Import Success**
 
-Once processing completes, verify the data:
+Once the status endpoint shows `COMPLETED`, verify the data:
 
-1. **Check the response**: The endpoint returns "Processing Git Data is Complete"
+1. **Check Neo4j directly**:
+   - Run queries to check node counts:
+   ```cypher
+   MATCH (i:Identity) RETURN count(i) as identities
+   MATCH (c:Commit) RETURN count(c) as commits
+   ```
 
 2. **Query via GraphQL** (http://localhost:8080/api/graphql):
    ```graphql
    query {
-     actors {
+     identities {
        name
        email
+       source
      }
    }
    ```
 
 3. **Check Neo4j directly**:
    ```cypher
-   MATCH (a:Actor)-[:AUTHORED]->(c:Commit)
-   RETURN a.name, count(c) as commits
+   MATCH (i:Identity)-[:AUTHORED]->(c:Commit)
+   RETURN i.name, count(c) as commits
    ORDER BY commits DESC
    LIMIT 10
    ```
+
+#### New Features in harden_deploy
+
+The latest version introduces several powerful analysis features:
+
+1. **PGP Signature Extraction**
+   - Automatically extracts PGP fingerprints from signed commits and tags.
+   - Enables auditing of signed vs. unsigned code in sensitive directories.
+
+2. **Granular File Change Tracking**
+   - Tracks additions, deletions, and renames at the file level.
+   - Automatically flags changes to `SENSITIVE_PATHS` defined in `file_change_processor.py`.
+
+3. **Merge Ancestry Analysis**
+   - Computes exactly which commits are brought in by a merge (reachable from 2nd parent but not 1st).
+   - Enables "Self-Merge Detection" to identify when developers merge their own work without sufficient peer review.
+
+4. **Incremental Ingestion**
+   - Only processes new commits added since the last run.
+   - Efficiently snapshots branch movements over time.
 
 #### Expected Processing Times
 
@@ -611,7 +625,7 @@ Once processing completes, verify the data:
 Once the initial import is complete:
 
 1. **Explore the GraphQL API**: Visit `http://localhost:8080/api/graphql` for the GraphiQL interface
-2. **Query repository data**: Use GraphQL queries to explore actors, commits, and relationships
+2. **Query repository data**: Use GraphQL queries to explore identities, commits, and relationships
 3. **Access the frontend**: Visit `http://localhost:8080/` to see the web interface
 4. **Re-run processing**: Subsequent calls to `/process_git_data_to_neo4j/` will process additional file paths (if configured)
 

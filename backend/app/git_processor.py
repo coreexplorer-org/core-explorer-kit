@@ -39,6 +39,7 @@ def process_git_data(
     folder_paths: Sequence[str] | None = None,
     commit_limit: int | None = None,
     use_new_schema: bool = True,
+    run_id: str | None = None,
 ):
     """
     Main entry point for Git data import.
@@ -48,7 +49,8 @@ def process_git_data(
         neo4j_driver: Optional Neo4j driver instance
         folder_paths: Optional list of paths to process file changes for
         commit_limit: Optional limit on number of commits to process
-        use_new_schema: Whether to use new schema (Identity, FileChange, etc.)
+        use_new_schema: Whether to use new schema (Identity, FileChange, etc.) [DEPRECATED: defaults to True]
+        run_id: Optional existing IngestRun ID to use
     """
     repo = Repo(repo_path or config.CONTAINER_SIDE_REPOSITORY_PATH)
     db = neo4j_driver or Neo4jDriver()
@@ -60,16 +62,28 @@ def process_git_data(
             print("Creating schema constraints...")
             db.create_constraints()
             
-            # Create ingest run
-            run_id = str(uuid.uuid4())
+            # Create or use existing ingest run
+            run_id = run_id or str(uuid.uuid4())
             pulled_at = datetime.now()
             db.create_ingest_run(run_id, pulled_at)
-            print(f"Created IngestRun: {run_id}")
+            print(f"IngestRun: {run_id}")
             
-            # Process commits
+            # 1. PROCESS COMMITS (BACKBONE)
             print("Processing commits...")
-            process_commits_new_schema(repo, db, commit_limit=commit_limit)
+            commit_count = process_commits_new_schema(repo, db, commit_limit=commit_limit)
             
+            # Mark backbone as complete
+            db.update_ingest_run_status(run_id, 'COMMITS_COMPLETE', total_commits=commit_count)
+            
+            # --- STAGE GATE ---
+            run_info = db.get_ingest_run_status(run_id)
+            if not run_info or run_info.get('status') != 'COMMITS_COMPLETE':
+                print(f"Commit backbone verification failed for {run_id}. Skipping advanced analysis.")
+                return
+            
+            print("Commit backbone verified. Proceeding with advanced enrichment.")
+            
+            # 2. ENRICHMENT STAGES
             # Process refs and tags
             print("Processing refs and tags...")
             process_refs_and_tags(repo, db, run_id)
@@ -84,13 +98,14 @@ def process_git_data(
             print(f"Processing file changes for paths: {active_paths}")
             process_file_changes_for_paths(repo, db, active_paths, commit_limit=commit_limit)
             
-            # Create Git-native events (scaffolding for future multi-source integration)
+            # Create Git-native events
             print("Creating Git-native events...")
             create_git_events(repo, db, commit_limit=commit_limit)
             
             # Process PGP signatures for commits
             print("Processing PGP signatures for commits...")
-            process_commit_signatures(repo, db, commit_limit=commit_limit)
+            sig_count = process_commit_signatures(repo, db, commit_limit=commit_limit)
+            db.update_ingest_run_status(run_id, 'COMMITS_COMPLETE', totalSignaturesProcessed=sig_count)
             
             # Process PGP signatures for tags
             print("Processing PGP signatures for tags...")
@@ -98,7 +113,12 @@ def process_git_data(
             
             # Process MERGED_INCLUDES for merge commits
             print("Computing MERGED_INCLUDES relationships...")
-            process_merged_includes(repo, db, merge_limit=None)
+            merge_count = process_merged_includes(repo, db, merge_limit=None)
+            db.update_ingest_run_status(run_id, 'COMMITS_COMPLETE', totalMergesProcessed=merge_count)
+            
+            # Mark run as fully complete
+            db.update_ingest_run_status(run_id, 'COMPLETED')
+            print(f"IngestRun {run_id} successfully completed.")
         else:
             # Legacy import path
             status_flag = db.merge_import_status()
@@ -194,14 +214,12 @@ def initial_process_commits_into_db(db: Neo4jDriver, commits):
     print(f"Processed {len(commits)} commits into Neo4j.")
 
 
-def process_commits_new_schema(repo: Repo, db: Neo4jDriver, commit_limit: Optional[int] = None):
+def process_commits_new_schema(repo: Repo, db: Neo4jDriver, commit_limit: Optional[int] = None) -> int:
     """
     Process commits using the new schema with batch upserts.
     
-    Args:
-        repo: Git repository
-        db: Neo4j driver
-        commit_limit: Optional limit on number of commits
+    Returns:
+        int: Number of commits processed
     """
     # Get existing commit hashes to enable incremental import
     with db._driver.session() as session:
@@ -214,30 +232,26 @@ def process_commits_new_schema(repo: Repo, db: Neo4jDriver, commit_limit: Option
     new_commits = []
     refs_to_check = []
     
-    # Check remote refs first (origin/master, origin/main, etc.)
     for remote in repo.remotes:
         for ref in remote.refs:
             refs_to_check.append(ref)
     
-    # Also check local refs
     for ref in repo.refs:
         if ref not in refs_to_check:
             refs_to_check.append(ref)
     
-    # Walk commits from ref tips
     seen_shas = set()
     for ref in refs_to_check:
         try:
             for commit in repo.iter_commits(ref):
                 if commit.hexsha in existing_shas:
-                    break  # Stop when we hit known commits
+                    break
                 if commit.hexsha not in seen_shas:
                     seen_shas.add(commit.hexsha)
                     new_commits.append(commit)
         except Exception as e:
             print(f"Error processing ref {ref}: {e}")
     
-    # If no refs or all commits exist, fall back to iterating all commits
     if not new_commits:
         print("No new commits found from refs, checking all commits...")
         for commit in repo.iter_commits():
@@ -253,7 +267,7 @@ def process_commits_new_schema(repo: Repo, db: Neo4jDriver, commit_limit: Option
     
     if not new_commits:
         print("No new commits to import")
-        return
+        return 0
     
     # Prepare batch rows
     commit_rows = []
@@ -286,6 +300,7 @@ def process_commits_new_schema(repo: Repo, db: Neo4jDriver, commit_limit: Option
     # Batch upsert
     db.batch_upsert_commits(commit_rows)
     print(f"Successfully imported {len(commit_rows)} commits")
+    return len(commit_rows)
 
 
 def process_file_changes_for_paths(
@@ -517,17 +532,12 @@ def process_commit_signatures(
     repo: Repo, 
     db: Neo4jDriver, 
     commit_limit: Optional[int] = None
-):
+) -> int:
     """
     Extract and store PGP signatures for commits already in the database.
     
-    This function works on existing commits, making it safe to run independently.
-    It queries for commits without HAS_SIGNATURE relationships and processes them.
-    
-    Args:
-        repo: Git repository
-        db: Neo4j driver
-        commit_limit: Optional limit on number of commits to process
+    Returns:
+        int: Number of signatures found and stored
     """
     BATCH_SIZE = 100
     
@@ -734,10 +744,6 @@ def process_commit_signatures(
                 # Show sample fingerprints on first batch
                 if i == BATCH_SIZE and sample_fingerprints:
                     print(f"  Sample fingerprints found: {', '.join([f'{sha}:{fp[:16]}...' for sha, fp in sample_fingerprints])}")
-                
-                # Show sample fingerprints on first batch
-                if i == BATCH_SIZE and sample_fingerprints:
-                    print(f"  Sample fingerprints found: {', '.join([f'{sha}:{fp[:16]}...' for sha, fp in sample_fingerprints])}")
     
     # Save remaining data (final batch)
     if key_rows:
@@ -777,6 +783,8 @@ def process_commit_signatures(
         print(f"Encountered {error_count} errors during processing")
         if sample_errors:
             print(f"Sample errors: {', '.join(sample_errors)}")
+    
+    return total_signed
 
 
 def process_tag_signatures(repo: Repo, db: Neo4jDriver):
@@ -859,18 +867,12 @@ def process_merged_includes(
     repo: Repo,
     db: Neo4jDriver,
     merge_limit: Optional[int] = None
-):
+) -> int:
     """
     Compute and store MERGED_INCLUDES relationships for merge commits.
     
-    This function works on existing merge commits in the database,
-    making it safe to run independently. It queries for merge commits
-    without MERGED_INCLUDES relationships and processes them.
-    
-    Args:
-        repo: Git repository
-        db: Neo4j driver
-        merge_limit: Optional limit on number of merges to process
+    Returns:
+        int: Number of MERGED_INCLUDES relationships created
     """
     BATCH_SIZE = 100
     
@@ -977,6 +979,8 @@ def process_merged_includes(
     print(f"Database state: {total_includes_in_db} total MERGED_INCLUDES relationships, {merges_with_includes_final} merges with relationships")
     if error_count > 0:
         print(f"Encountered {error_count} errors during processing")
+    
+    return total_relationships
 
 
 if __name__ == "__main__":

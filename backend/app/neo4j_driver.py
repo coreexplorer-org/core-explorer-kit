@@ -496,7 +496,11 @@ class Neo4jDriver:
             result = session.run(
                 """
                 MERGE (ir:IngestRun {id: $run_id})
-                SET ir.pulledAt = $pulled_at
+                SET ir.pulledAt = $pulled_at,
+                    ir.status = 'STARTED',
+                    ir.totalCommitsProcessed = 0,
+                    ir.totalSignaturesProcessed = 0,
+                    ir.totalMergesProcessed = 0
                 RETURN ir.id AS id
                 """,
                 run_id=run_id,
@@ -504,6 +508,50 @@ class Neo4jDriver:
             )
             record = result.single()
             return record["id"] if record else run_id
+
+    def update_ingest_run_status(self, run_id: str, status: str, **kwargs):
+        """Update the status and progress of an IngestRun."""
+        with self._driver.session() as session:
+            set_clauses = ["ir.status = $status"]
+            params = {"run_id": run_id, "status": status}
+            
+            for key, value in kwargs.items():
+                if value is not None:
+                    set_clauses.append(f"ir.{key} = ${key}")
+                    params[key] = value
+            
+            query = f"""
+            MATCH (ir:IngestRun {{id: $run_id}})
+            SET {', '.join(set_clauses)}
+            """
+            
+            session.run(query, **params)
+            print(f"Updated IngestRun {run_id} status to {status} {kwargs if kwargs else ''}")
+
+    def get_ingest_run_status(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch the status and progress of an IngestRun."""
+        with self._driver.session() as session:
+            result = session.run(
+                """
+                MATCH (ir:IngestRun {id: $run_id})
+                RETURN ir.id AS id, ir.status AS status, ir.pulledAt AS pulledAt, 
+                       ir.totalCommitsProcessed AS totalCommitsProcessed,
+                       ir.totalSignaturesProcessed AS totalSignaturesProcessed,
+                       ir.totalMergesProcessed AS totalMergesProcessed
+                """,
+                run_id=run_id
+            )
+            record = result.single()
+            if record:
+                return {
+                    "id": record["id"],
+                    "status": record["status"],
+                    "pulledAt": record["pulledAt"],
+                    "totalCommitsProcessed": record.get("totalCommitsProcessed", 0),
+                    "totalSignaturesProcessed": record.get("totalSignaturesProcessed", 0),
+                    "totalMergesProcessed": record.get("totalMergesProcessed", 0)
+                }
+            return None
 
     def snapshot_refs(self, run_id: str, refs: List[Dict[str, Any]]):
         """
