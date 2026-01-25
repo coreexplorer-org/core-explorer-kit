@@ -1,16 +1,12 @@
 # src/neo4j_driver.py
-from typing import Optional
+from typing import Optional, List, Dict, Any
+from datetime import datetime
 from neo4j import GraphDatabase, Record
 from commit_details import CommitDetails
 import config
 import time
 import json
-from git import Commit, Actor
-import uuid
-
-def uuid4():  ## do we need this? 
-    """Generate a random UUID."""
-    return uuid.uuid4().hex
+from git import Commit, Actor, Repo, TagReference
 
 
 class Neo4jDriver:
@@ -23,7 +19,7 @@ class Neo4jDriver:
         retry_delay: int = 2,
     ):
         self._uri = uri or config.NEO4J_URI
-        self._auth = (user or config.NEO4J_USER, password or config.NEO4J_PASSWORD)
+        self._auth = (user or config.APP_NEO4J_USER, password or config.APP_NEO4J_PASSWORD)
         for attempt in range(max_retries):
             try:
                 self.driver = GraphDatabase.driver(
@@ -89,11 +85,11 @@ class Neo4jDriver:
         with self.driver.session() as session:
             query = """
             MERGE (a:Actor {name: $name, email: $email})
-            RETURN elementId(a)
+            RETURN id(a) AS node_id
             """
             result = session.run(query, name=actor.name, email=actor.email)
             record = self._require_single_record(result, "Failed to create or retrieve node with label Actor")
-            return record["elementId(a)"]
+            return str(record["node_id"])
 
     def merge_actor_node(self, properties) -> Record:
         with self.driver.session() as session:
@@ -300,10 +296,11 @@ class Neo4jDriver:
     def merge_commit_step(self, commit: Commit, committer_node: str, author_node: str, co_author_nodes: list[str]):
         # print('commit merge processing')
         commit_details = CommitDetails(commit)
+        # Use id() for Neo4j 4.x compatibility (elementId() is Neo4j 5.x only)
         self._driver.execute_query(
-            "match (committer), (author)"
-            "where elementId(author) = $author_id "
-            "and elementId(committer) = $committer_id "
+            "match (committer:Actor), (author:Actor)"
+            "where id(author) = $author_id "
+            "and id(committer) = $committer_id "
             "MERGE (c:Commit {commit_hash: $commit_hash}) "
             "ON CREATE SET c.parent_shas = $parent_shas, "
             " c.message = $message, "
@@ -312,8 +309,8 @@ class Neo4jDriver:
             "ON CREATE SET cr.committed_date = $committed_date "
             "MERGE (author)-[ca:AUTHORED]->(c) "
             "ON CREATE SET ca.authored_date = $authored_date "
-            , committer_id=committer_node,
-              author_id=author_node,
+            , committer_id=int(committer_node),
+              author_id=int(author_node),
               commit_hash=commit_details.commit_hash,
               parent_shas=commit_details.parent_shas,
               authored_date=commit_details.authored_date,
@@ -342,3 +339,591 @@ class Neo4jDriver:
             "git_import_complete": record["a.git_import_complete"],
             "next_complete": record["a.next_complete"]
         }
+
+    # ========== New Schema Methods ==========
+
+    def check_and_cleanup_filechange_duplicates(self, cleanup: bool = False) -> Dict[str, Any]:
+        """
+        Check for duplicate FileChange nodes (same commit_hash and path).
+        
+        Args:
+            cleanup: If True, remove duplicates keeping the first one. If False, only report.
+        
+        Returns:
+            Dict with 'duplicate_count' and 'duplicate_groups' information
+        """
+        with self._driver.session() as session:
+            # Find duplicates
+            check_query = """
+            MATCH (fc:FileChange)
+            WITH fc.commit_hash AS commit_hash, fc.path AS path, collect(fc) AS nodes
+            WHERE size(nodes) > 1
+            RETURN commit_hash, path, size(nodes) AS count, [n IN nodes | id(n)] AS node_ids
+            ORDER BY count DESC
+            """
+            
+            result = session.run(check_query)
+            duplicates = []
+            total_duplicate_nodes = 0
+            
+            for record in result:
+                commit_hash = record["commit_hash"]
+                path = record["path"]
+                count = record["count"]
+                node_ids = record["node_ids"]
+                
+                duplicates.append({
+                    "commit_hash": commit_hash,
+                    "path": path,
+                    "count": count,
+                    "node_ids": node_ids
+                })
+                total_duplicate_nodes += (count - 1)  # -1 because we keep one
+            
+            if duplicates:
+                print(f"Found {len(duplicates)} duplicate FileChange groups affecting {total_duplicate_nodes} nodes")
+                
+                if cleanup:
+                    # Delete duplicates, keeping the first node in each group
+                    cleanup_query = """
+                    MATCH (fc:FileChange)
+                    WITH fc.commit_hash AS commit_hash, fc.path AS path, collect(fc) AS nodes
+                    WHERE size(nodes) > 1
+                    WITH commit_hash, path, nodes[0] AS keep, nodes[1..] AS to_delete
+                    UNWIND to_delete AS duplicate
+                    DETACH DELETE duplicate
+                    RETURN count(duplicate) AS deleted_count
+                    """
+                    
+                    cleanup_result = session.run(cleanup_query)
+                    deleted_record = cleanup_result.single()
+                    deleted_count = deleted_record["deleted_count"] if deleted_record else 0
+                    print(f"Cleaned up {deleted_count} duplicate FileChange nodes")
+                    
+                    return {
+                        "duplicate_groups": len(duplicates),
+                        "duplicate_nodes": total_duplicate_nodes,
+                        "deleted_count": deleted_count,
+                        "details": duplicates
+                    }
+                else:
+                    # Just report
+                    for dup in duplicates[:5]:  # Show first 5
+                        print(f"  Duplicate: commit={dup['commit_hash'][:8]} path={dup['path']} count={dup['count']}")
+                    if len(duplicates) > 5:
+                        print(f"  ... and {len(duplicates) - 5} more groups")
+                    
+                    return {
+                        "duplicate_groups": len(duplicates),
+                        "duplicate_nodes": total_duplicate_nodes,
+                        "deleted_count": 0,
+                        "details": duplicates
+                    }
+            else:
+                print("No duplicate FileChange nodes found")
+                return {
+                    "duplicate_groups": 0,
+                    "duplicate_nodes": 0,
+                    "deleted_count": 0,
+                    "details": []
+                }
+
+    def create_constraints(self):
+        """Create all required constraints for the new schema."""
+        # Check for and clean up FileChange duplicates before creating the constraint
+        print("Checking for duplicate FileChange nodes...")
+        duplicate_info = self.check_and_cleanup_filechange_duplicates(cleanup=True)
+        if duplicate_info["duplicate_groups"] > 0:
+            print(f"Cleaned up {duplicate_info['deleted_count']} duplicate FileChange nodes before applying constraint")
+        
+        with self._driver.session() as session:
+            constraints = [
+                # Commits
+                "CREATE CONSTRAINT commit_hash_unique IF NOT EXISTS FOR (c:Commit) REQUIRE c.commit_hash IS UNIQUE",
+                # Identities
+                "CREATE CONSTRAINT identity_unique IF NOT EXISTS FOR (i:Identity) REQUIRE (i.source, i.email, i.name) IS UNIQUE",
+                # Paths
+                "CREATE CONSTRAINT path_unique IF NOT EXISTS FOR (p:Path) REQUIRE p.path IS UNIQUE",
+                # Refs - remote must always be set (use empty string if null)
+                "CREATE CONSTRAINT ref_unique IF NOT EXISTS FOR (r:Ref) REQUIRE (r.kind, r.name, r.remote) IS UNIQUE",
+                # PGP Keys
+                "CREATE CONSTRAINT pgpkey_unique IF NOT EXISTS FOR (k:PGPKey) REQUIRE k.fingerprint IS UNIQUE",
+                # Ingest Runs
+                "CREATE CONSTRAINT ingestrun_unique IF NOT EXISTS FOR (ir:IngestRun) REQUIRE ir.id IS UNIQUE",
+                # FileChanges - ensure uniqueness per commit+path
+                "CREATE CONSTRAINT filechange_unique IF NOT EXISTS FOR (fc:FileChange) REQUIRE (fc.commit_hash, fc.path) IS UNIQUE",
+            ]
+            
+            for constraint_query in constraints:
+                try:
+                    session.run(constraint_query)
+                    print(f"Created constraint: {constraint_query[:50]}...")
+                except Exception as e:
+                    print(f"Constraint may already exist or error: {e}")
+            
+            # Indexes
+            indexes = [
+                "CREATE INDEX commit_times IF NOT EXISTS FOR (c:Commit) ON (c.committedAt)",
+                "CREATE INDEX commit_authored_times IF NOT EXISTS FOR (c:Commit) ON (c.authoredAt)",
+                "CREATE INDEX event_times IF NOT EXISTS FOR (e:Event) ON (e.ts)",
+            ]
+            
+            for index_query in indexes:
+                try:
+                    session.run(index_query)
+                    print(f"Created index: {index_query[:50]}...")
+                except Exception as e:
+                    print(f"Index may already exist or error: {e}")
+
+    def batch_upsert_commits(self, commit_rows: List[Dict[str, Any]], batch_size: int = 1000):
+        """
+        Batch upsert commits with identities and parent relationships.
+        
+        Args:
+            commit_rows: List of dicts with keys: sha, message, summary, authoredAt, committedAt,
+                        isMerge, parents (list of shas), author (dict with source/name/email),
+                        committer (dict with source/name/email), coauthors (list of dicts)
+            batch_size: Number of commits to process per transaction
+        """
+        for i in range(0, len(commit_rows), batch_size):
+            batch = commit_rows[i:i + batch_size]
+            with self._driver.session() as session:
+                session.execute_write(self._batch_upsert_commits_tx, batch)
+            print(f"Processed commit batch {i//batch_size + 1}/{(len(commit_rows)-1)//batch_size + 1}")
+
+    @staticmethod
+    def _batch_upsert_commits_tx(tx, rows: List[Dict[str, Any]]):
+        """Transaction function for batch commit upsert."""
+        query = """
+        UNWIND $rows AS row
+
+        MERGE (c:Commit {commit_hash: row.sha})
+        ON CREATE SET
+          c.message = row.message,
+          c.summary = row.summary,
+          c.authoredAt = row.authoredAt,
+          c.committedAt = row.committedAt,
+          c.isMerge = row.isMerge
+        ON MATCH SET
+          c.message = row.message,
+          c.summary = row.summary,
+          c.authoredAt = row.authoredAt,
+          c.committedAt = row.committedAt,
+          c.isMerge = row.isMerge
+
+        // Author
+        MERGE (a:Identity {source: row.author.source, name: row.author.name, email: row.author.email})
+        MERGE (a)-[ra:AUTHORED]->(c)
+        ON CREATE SET ra.at = row.authoredAt
+        ON MATCH SET ra.at = row.authoredAt
+
+        // Committer
+        MERGE (m:Identity {source: row.committer.source, name: row.committer.name, email: row.committer.email})
+        MERGE (m)-[rm:COMMITTED]->(c)
+        ON CREATE SET rm.at = row.committedAt
+        ON MATCH SET rm.at = row.committedAt
+
+        // Co-authors (optional)
+        FOREACH (co IN coalesce(row.coauthors, []) |
+          MERGE (ci:Identity {source: co.source, name: co.name, email: co.email})
+          MERGE (ci)-[:CO_AUTHORED]->(c)
+        )
+
+        // Parents
+        FOREACH (idx IN range(0, size(coalesce(row.parents, [])) - 1) |
+          MERGE (p:Commit {commit_hash: row.parents[idx]})
+          MERGE (c)-[hp:HAS_PARENT {idx: idx}]->(p)
+        )
+        """
+        tx.run(query, rows=rows)
+
+    def batch_upsert_file_changes(self, change_rows: List[Dict[str, Any]], batch_size: int = 1000):
+        """
+        Batch upsert file changes for commits.
+        
+        Args:
+            change_rows: List of dicts with keys: sha, changes (list of dicts with path, status, add, del, rename_from, isSensitive)
+            batch_size: Number of commits to process per transaction
+        """
+        for i in range(0, len(change_rows), batch_size):
+            batch = change_rows[i:i + batch_size]
+            with self._driver.session() as session:
+                session.execute_write(self._batch_upsert_file_changes_tx, batch)
+            print(f"Processed file change batch {i//batch_size + 1}/{(len(change_rows)-1)//batch_size + 1}")
+
+    @staticmethod
+    def _batch_upsert_file_changes_tx(tx, rows: List[Dict[str, Any]]):
+        """Transaction function for batch file change upsert."""
+        query = """
+        UNWIND $rows AS row
+        MATCH (c:Commit {commit_hash: row.sha})
+
+        UNWIND row.changes AS ch
+        MERGE (p:Path {path: ch.path})
+        MERGE (fc:FileChange {commit_hash: row.sha, path: ch.path})
+        ON CREATE SET
+          fc.status = ch.status,
+          fc.add = ch.add,
+          fc.del = ch.del,
+          fc.rename_from = ch.rename_from,
+          fc.isSensitive = ch.isSensitive
+        ON MATCH SET
+          fc.status = ch.status,
+          fc.add = ch.add,
+          fc.del = ch.del,
+          fc.rename_from = ch.rename_from,
+          fc.isSensitive = ch.isSensitive
+
+        MERGE (c)-[:HAS_CHANGE]->(fc)
+        MERGE (fc)-[:OF_PATH]->(p)
+        """
+        tx.run(query, rows=rows)
+
+    def create_ingest_run(self, run_id: str, pulled_at: datetime) -> str:
+        """Create an IngestRun node."""
+        with self._driver.session() as session:
+            result = session.run(
+                """
+                MERGE (ir:IngestRun {id: $run_id})
+                SET ir.pulledAt = $pulled_at,
+                    ir.status = 'STARTED',
+                    ir.totalCommitsProcessed = 0,
+                    ir.totalSignaturesProcessed = 0,
+                    ir.totalMergesProcessed = 0
+                RETURN ir.id AS id
+                """,
+                run_id=run_id,
+                pulled_at=pulled_at
+            )
+            record = result.single()
+            return record["id"] if record else run_id
+
+    def update_ingest_run_status(self, run_id: str, status: str, **kwargs):
+        """Update the status and progress of an IngestRun."""
+        with self._driver.session() as session:
+            set_clauses = ["ir.status = $status"]
+            params = {"run_id": run_id, "status": status}
+            
+            for key, value in kwargs.items():
+                if value is not None:
+                    set_clauses.append(f"ir.{key} = ${key}")
+                    params[key] = value
+            
+            query = f"""
+            MATCH (ir:IngestRun {{id: $run_id}})
+            SET {', '.join(set_clauses)}
+            """
+            
+            session.run(query, **params)
+            print(f"Updated IngestRun {run_id} status to {status} {kwargs if kwargs else ''}")
+
+    def get_ingest_run_status(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch the status and progress of an IngestRun."""
+        with self._driver.session() as session:
+            result = session.run(
+                """
+                MATCH (ir:IngestRun {id: $run_id})
+                RETURN ir.id AS id, ir.status AS status, ir.pulledAt AS pulledAt, 
+                       ir.totalCommitsProcessed AS totalCommitsProcessed,
+                       ir.totalSignaturesProcessed AS totalSignaturesProcessed,
+                       ir.totalMergesProcessed AS totalMergesProcessed
+                """,
+                run_id=run_id
+            )
+            record = result.single()
+            if record:
+                return {
+                    "id": record["id"],
+                    "status": record["status"],
+                    "pulledAt": record["pulledAt"],
+                    "totalCommitsProcessed": record.get("totalCommitsProcessed", 0),
+                    "totalSignaturesProcessed": record.get("totalSignaturesProcessed", 0),
+                    "totalMergesProcessed": record.get("totalMergesProcessed", 0)
+                }
+            return None
+
+    def snapshot_refs(self, run_id: str, refs: List[Dict[str, Any]]):
+        """
+        Create RefState snapshots for an IngestRun.
+        
+        Args:
+            run_id: IngestRun ID
+            refs: List of dicts with keys: name, kind, remote (optional), tipSha
+        """
+        with self._driver.session() as session:
+            session.execute_write(self._snapshot_refs_tx, run_id, refs)
+
+    @staticmethod
+    def _snapshot_refs_tx(tx, run_id: str, refs: List[Dict[str, Any]]):
+        """Transaction function for ref snapshotting."""
+        # Ensure remote is always a string (empty if None) before query
+        for ref_data in refs:
+            if ref_data.get('remote') is None:
+                ref_data['remote'] = ''
+        
+        query = """
+        MATCH (ir:IngestRun {id: $run_id})
+        UNWIND $refs AS ref_data
+
+        MERGE (r:Ref {kind: ref_data.kind, name: ref_data.name, remote: ref_data.remote})
+        MERGE (tip:Commit {commit_hash: ref_data.tipSha})
+        MERGE (rs:RefState {name: ref_data.name, kind: ref_data.kind, remote: ref_data.remote, tipSha: ref_data.tipSha})
+        MERGE (ir)-[:SAW_REF]->(rs)
+        MERGE (rs)-[:POINTS_TO]->(tip)
+        MERGE (r)-[:POINTS_TO]->(tip)
+        """
+        tx.run(query, run_id=run_id, refs=refs)
+
+    def upsert_tags(self, tags: List[Dict[str, Any]]):
+        """
+        Upsert tag objects.
+        
+        Args:
+            tags: List of dicts with keys: name, taggerAt, message, targetSha, tagger (dict with source/name/email)
+        """
+        with self._driver.session() as session:
+            session.execute_write(self._upsert_tags_tx, tags)
+
+    @staticmethod
+    def _upsert_tags_tx(tx, tags: List[Dict[str, Any]]):
+        """Transaction function for tag upsert."""
+        query = """
+        UNWIND $tags AS tag_data
+
+        MERGE (to:TagObject {name: tag_data.name})
+        ON CREATE SET
+          to.taggerAt = tag_data.taggerAt,
+          to.message = tag_data.message
+        ON MATCH SET
+          to.taggerAt = tag_data.taggerAt,
+          to.message = tag_data.message
+
+        MERGE (target:Commit {commit_hash: tag_data.targetSha})
+        MERGE (to)-[:TAG_OF]->(target)
+
+        MERGE (tagger:Identity {source: tag_data.tagger.source, name: tag_data.tagger.name, email: tag_data.tagger.email})
+        MERGE (tagger)-[:TAGGED]->(to)
+
+        MERGE (r:Ref {kind: 'tag', name: tag_data.name, remote: ''})
+        MERGE (r)-[:POINTS_TO]->(to)
+        """
+        tx.run(query, tags=tags)
+
+    def batch_create_events(self, events: List[Dict[str, Any]]):
+        """
+        Batch create Event nodes (scaffolding for future multi-source integration).
+        
+        Args:
+            events: List of dicts with keys: type, source, ts, artifact_type (optional), artifact_id (optional)
+        """
+        with self._driver.session() as session:
+            session.execute_write(self._batch_create_events_tx, events)
+
+    @staticmethod
+    def _batch_create_events_tx(tx, events: List[Dict[str, Any]]):
+        """Transaction function for batch event creation (Neo4j 4.x compatible)."""
+        # Neo4j 4.x doesn't support CALL subqueries with WHERE, so we use conditional matching
+        query = """
+        UNWIND $events AS event_data
+        
+        MERGE (e:Event {type: event_data.type, source: event_data.source, ts: event_data.ts})
+        SET e.ts = event_data.ts
+        
+        WITH e, event_data
+        WHERE event_data.artifact_type IS NOT NULL 
+          AND event_data.artifact_id IS NOT NULL
+          AND event_data.artifact_type = 'Commit'
+        
+        MATCH (a:Commit {commit_hash: event_data.artifact_id})
+        MERGE (e)-[:ABOUT]->(a)
+        """
+        tx.run(query, events=events)
+
+    def create_role(self, person_id: str, role_kind: str, from_date: datetime, to_date: Optional[datetime], source: str):
+        """
+        Create a Role relationship (scaffolding for temporal authority tracking).
+        
+        Args:
+            person_id: Person node ID
+            role_kind: Type of role ("maintainer", "keyholder", "reviewer")
+            from_date: Start date
+            to_date: End date (optional)
+            source: Source of role information (e.g., "keyring", "repo_acl")
+        """
+        with self._driver.session() as session:
+            session.run(
+                """
+                MATCH (p:Person {id: $person_id})
+                MERGE (r:Role {kind: $role_kind})
+                MERGE (p)-[hr:HELD_ROLE]->(r)
+                SET hr.from = $from_date,
+                    hr.to = $to_date,
+                    hr.source = $source
+                """,
+                person_id=person_id,
+                role_kind=role_kind,
+                from_date=from_date,
+                to_date=to_date,
+                source=source
+            )
+
+    def batch_upsert_pgp_keys(self, key_rows: List[Dict[str, Any]], batch_size: int = 1000):
+        """
+        Batch upsert PGPKey nodes.
+        
+        Args:
+            key_rows: List of dicts with keys: fingerprint, createdAt (optional), revokedAt (optional)
+            batch_size: Number of keys to process per transaction
+        """
+        if not key_rows:
+            return
+        
+        for i in range(0, len(key_rows), batch_size):
+            batch = key_rows[i:i + batch_size]
+            with self._driver.session() as session:
+                session.execute_write(self._batch_upsert_pgp_keys_tx, batch)
+            if len(key_rows) > batch_size:
+                print(f"Processed PGP key batch {i//batch_size + 1}/{(len(key_rows)-1)//batch_size + 1}")
+
+    @staticmethod
+    def _batch_upsert_pgp_keys_tx(tx, rows: List[Dict[str, Any]]):
+        """Transaction function for batch PGP key upsert."""
+        query = """
+        UNWIND $rows AS row
+
+        MERGE (k:PGPKey {fingerprint: row.fingerprint})
+        ON CREATE SET
+          k.createdAt = row.createdAt,
+          k.revokedAt = row.revokedAt
+        ON MATCH SET
+          k.createdAt = coalesce(row.createdAt, k.createdAt),
+          k.revokedAt = coalesce(row.revokedAt, k.revokedAt)
+        """
+        tx.run(query, rows=rows)
+
+    def batch_create_signatures(
+        self, 
+        signature_rows: List[Dict[str, Any]], 
+        batch_size: int = 1000
+    ):
+        """
+        Batch create HAS_SIGNATURE relationships.
+        
+        Args:
+            signature_rows: List of dicts with keys:
+                - artifact_type: "Commit" or "TagObject"
+                - artifact_id: commit_hash or tag name
+                - fingerprint: PGP key fingerprint
+                - valid: boolean or None
+                - method: "gpg"
+            batch_size: Number of signatures to process per transaction
+        """
+        if not signature_rows:
+            return
+        
+        for i in range(0, len(signature_rows), batch_size):
+            batch = signature_rows[i:i + batch_size]
+            with self._driver.session() as session:
+                session.execute_write(self._batch_create_signatures_tx, batch)
+            if len(signature_rows) > batch_size:
+                print(f"Processed signature batch {i//batch_size + 1}/{(len(signature_rows)-1)//batch_size + 1}")
+
+    @staticmethod
+    def _batch_create_signatures_tx(tx, rows: List[Dict[str, Any]]):
+        """Transaction function for batch signature creation (Neo4j 4.x compatible)."""
+        # Process commits and tags separately for compatibility
+        commit_rows = [r for r in rows if r.get('artifact_type') == 'Commit']
+        tag_rows = [r for r in rows if r.get('artifact_type') == 'TagObject']
+        
+        # Process commits
+        if commit_rows:
+            query_commits = """
+            UNWIND $rows AS row
+            MATCH (artifact:Commit {commit_hash: row.artifact_id})
+            MERGE (k:PGPKey {fingerprint: row.fingerprint})
+            MERGE (artifact)-[hs:HAS_SIGNATURE]->(k)
+            SET hs.valid = row.valid,
+                hs.method = row.method,
+                hs.signer_fp = row.fingerprint
+            """
+            tx.run(query_commits, rows=commit_rows)
+        
+        # Process tags
+        if tag_rows:
+            query_tags = """
+            UNWIND $rows AS row
+            MATCH (artifact:TagObject {name: row.artifact_id})
+            MERGE (k:PGPKey {fingerprint: row.fingerprint})
+            MERGE (artifact)-[hs:HAS_SIGNATURE]->(k)
+            SET hs.valid = row.valid,
+                hs.method = row.method,
+                hs.signer_fp = row.fingerprint
+            """
+            tx.run(query_tags, rows=tag_rows)
+
+    def batch_mark_commits_checked_for_signatures(self, commit_shas: List[str], batch_size: int = 1000):
+        """
+        Mark commits as checked for signatures (even if they don't have signatures).
+        This allows us to skip already-checked commits on subsequent runs.
+        
+        Args:
+            commit_shas: List of commit hashes to mark as checked
+            batch_size: Number of commits to process per transaction
+        """
+        if not commit_shas:
+            return
+        
+        for i in range(0, len(commit_shas), batch_size):
+            batch = commit_shas[i:i + batch_size]
+            with self._driver.session() as session:
+                session.execute_write(self._batch_mark_commits_checked_tx, batch)
+            if len(commit_shas) > batch_size:
+                print(f"Marked {min(i + batch_size, len(commit_shas))}/{len(commit_shas)} commits as checked")
+
+    @staticmethod
+    def _batch_mark_commits_checked_tx(tx, commit_shas: List[str]):
+        """Transaction function for marking commits as checked for signatures."""
+        query = """
+        UNWIND $commit_shas AS sha
+        MATCH (c:Commit {commit_hash: sha})
+        SET c.signature_checked = true
+        """
+        tx.run(query, commit_shas=commit_shas)
+
+    def batch_create_merged_includes(
+        self,
+        merge_rows: List[Dict[str, Any]],
+        batch_size: int = 1000
+    ):
+        """
+        Batch create MERGED_INCLUDES relationships.
+        
+        Args:
+            merge_rows: List of dicts with keys:
+                - merge_sha: SHA of merge commit
+                - included_shas: List of commit SHAs introduced by merge
+            batch_size: Number of merges to process per transaction
+        """
+        if not merge_rows:
+            return
+        
+        for i in range(0, len(merge_rows), batch_size):
+            batch = merge_rows[i:i + batch_size]
+            with self._driver.session() as session:
+                session.execute_write(self._batch_create_merged_includes_tx, batch)
+            if len(merge_rows) > batch_size:
+                print(f"Processed MERGED_INCLUDES batch {i//batch_size + 1}/{(len(merge_rows)-1)//batch_size + 1}")
+
+    @staticmethod
+    def _batch_create_merged_includes_tx(tx, rows: List[Dict[str, Any]]):
+        """Transaction function for batch MERGED_INCLUDES creation."""
+        query = """
+        UNWIND $rows AS row
+        MATCH (merge:Commit {commit_hash: row.merge_sha})
+        WHERE merge.isMerge = true
+        
+        UNWIND row.included_shas AS included_sha
+        MATCH (included:Commit {commit_hash: included_sha})
+        MERGE (merge)-[:MERGED_INCLUDES]->(included)
+        """
+        tx.run(query, rows=rows)

@@ -1,14 +1,17 @@
 services:
 
   neo4j:
-    image: neo4j:latest
+    image: neo4j:5.20.0
     ports:
       - "7474:7474"  # HTTP interface
       - "7687:7687"  # Bolt protocol
+    env_file:
+      - .env
     environment:
-      - NEO4J_AUTH=neo4j/password  # Set initial username/password # TODO Get this from ENV file
+      - NEO4J_AUTH=${APP_NEO4J_USER}/${APP_NEO4J_PASSWORD}
     volumes:
       - ./data/neo4j:/data  # Persist data in project folder
+    command: ["neo4j", "console", "--verbose"]
     restart: unless-stopped
     networks:
       - appnet
@@ -22,11 +25,13 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    env_file:
+      - .env
     volumes:
       - ./backend/app:/app  # Mount app code for live reloading
       - ./backend/wsgi.py:/app/wsgi.py  # Mount wsgi.py separately
       - ./backend/wsgi.ini:/app/wsgi.ini  # Mount wsgi.ini separately
-      - ./data/user_supplied_repo:/app/bitcoin # Mount last so that it's supercedes the app code mount
+      - ${USER_SUPPLIED_REPO_PATH}:/app/bitcoin # Mount last so that it's supercedes the app code mount
     depends_on:
       neo4j:
         condition: service_healthy

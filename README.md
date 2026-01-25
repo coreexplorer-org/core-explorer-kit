@@ -4,7 +4,138 @@
 
 Core Explorer is a comprehensive development audit and analysis platform designed to systematically review and assess the health of large-scale open source projects, with a primary focus on Bitcoin Core. The platform addresses a critical question in open source development: "Who watches the watcher?" by providing tools to identify when code changes may have received insufficient peer review. At its core, Core Explorer processes git repository data—extracting commit history, tracking authors and committers, analyzing relationships between contributors and their code changes—and stores this information in a [Neo4j graph database](https://neo4j.com/) that models the complex relationships between developers, commits, and code paths. The system includes a [Flask-based backend](backend/) with a [GraphQL API](backend/app/schema.py) for flexible data querying, a [Next.js web interface](CE_demo/README.md) for visualizing repository metrics and contributor activity, and [automated processing pipelines](repo_explorer/README.md) that can analyze entire repositories or drill down into specific files and directories. Key health metrics tracked include self-merge ratios (when authors merge their own code, indicating potential gaps in peer review), contributor acknowledgment patterns, and per-line code quality indices. By providing transparent, data-driven insights into the peer review process, Core Explorer helps maintainers, contributors, and auditors understand the review coverage and quality of code contributions, ultimately strengthening the integrity and security of critical open source projects.
 
+## Data Model
+
+Core Explorer uses a Git-first schema that models repository history as a graph database. The schema is designed around the principle that commits are the primary stable keys (SHA-based), enabling efficient queries about who changed what, when, and how.
+
+### Core Node Types
+
+**Identity** - Represents raw contributor identities from Git
+- Properties: `source` (e.g., "git"), `name`, `email` (composite unique key)
+- Relationships: `AUTHORED` → Commit, `COMMITTED` → Commit, `TAGGED` → TagObject
+
+**Commit** - Represents Git commits
+- Properties: `commit_hash` (unique SHA), `authoredAt`, `committedAt`, `message`, `summary`, `isMerge` (boolean)
+- Relationships: `HAS_PARENT` → Commit (with `idx` property for parent order), `HAS_CHANGE` → FileChange, `MERGED_INCLUDES` → Commit (for merge analysis)
+
+**FileChange** - Tracks file-level changes per commit
+- Properties: `status` (A/M/D/R for Added/Modified/Deleted/Renamed), `add` (lines added), `del` (lines deleted), `rename_from` (nullable), `isSensitive` (boolean), `commit_hash`, `path` (composite unique key with commit_hash)
+- Relationships: `OF_PATH` → Path
+
+**Path** - Represents file paths in the repository
+- Properties: `path` (unique string)
+- Relationships: Connected via FileChange nodes
+
+**Ref** - Represents Git branches and tags
+- Properties: `kind` ("branch" or "tag"), `name`, `remote` (nullable, e.g., "origin")
+- Relationships: `POINTS_TO` → Commit or TagObject
+
+**TagObject** - Represents annotated Git tags
+- Properties: `name`, `taggerAt` (datetime), `message`
+- Relationships: `TAG_OF` → Commit, `HAS_SIGNATURE` → PGPKey
+
+**PGPKey** - Represents PGP/GPG keys used for signing
+- Properties: `fingerprint` (unique), `createdAt` (nullable), `revokedAt` (nullable)
+- Relationships: Connected via `HAS_SIGNATURE` from Commits and TagObjects
+
+**IngestRun** - Tracks each data import session
+- Properties: `id` (unique UUID), `pulledAt` (datetime), `status`, progress counters
+- Relationships: `SAW_REF` → RefState
+
+**RefState** - Snapshots of ref positions at import time
+- Properties: `name`, `kind`, `remote`, `tipSha` (commit SHA at snapshot time)
+- Relationships: `POINTS_TO` → Commit
+
+### Key Relationships
+
+- `AUTHORED` / `COMMITTED`: Links Identity nodes to Commit nodes with timestamp properties
+- `HAS_PARENT`: Links commits to their parent commits (enables ancestry traversal)
+- `MERGED_INCLUDES`: For merge commits, links to commits introduced by the merge (reachable from 2nd parent but not 1st)
+- `HAS_CHANGE`: Links commits to FileChange nodes representing file modifications
+- `HAS_SIGNATURE`: Links Commits and TagObjects to PGPKey nodes with validation status
+- `SAW_REF`: Links IngestRun to RefState snapshots (enables tracking ref movement over time)
+
+### Data Integrity
+
+The schema enforces uniqueness constraints on:
+- `Commit.commit_hash`
+- `Identity(source, email, name)`
+- `Path.path`
+- `Ref(kind, name, remote)`
+- `PGPKey.fingerprint`
+- `IngestRun.id`
+- `FileChange(commit_hash, path)`
+
+These constraints ensure data integrity and enable efficient lookups and merges during incremental imports.
+
+### Query Patterns Enabled
+
+The schema supports powerful analysis queries such as:
+- **Sensitive path analysis**: Track changes to critical code paths (e.g., consensus, policy)
+  ```cypher
+  MATCH (c:Commit)-[:HAS_CHANGE]->(fc:FileChange)-[:OF_PATH]->(p:Path)
+  WHERE p.path STARTS WITH "src/consensus"
+  RETURN c, fc, p
+  ORDER BY c.authoredAt DESC
+  LIMIT 50;
+  ```
+- **Merge ancestry analysis**: Identify which commits were introduced by each merge
+  ```cypher
+  MATCH (m:Commit {isMerge: true})-[:MERGED_INCLUDES]->(a:Commit)
+  RETURN m, collect(a) AS introduced_commits
+  ORDER BY m.committedAt DESC
+  LIMIT 20;
+  ```
+- **Temporal ref tracking**: Show commits added to main, between tagged releases. include nodes that help to illustrate "who contributed to this release?"
+  ```cypher
+  MATCH (tagRef:Ref {kind: "tag"})-[:POINTS_TO]->(tag:TagObject)-[:TAG_OF]->(tagTip:Commit)
+  WHERE tag.name IN ["v30.2", "v28.1"]
+  WITH tagRef, tag, tagTip ORDER BY tag.taggerAt DESC
+  WITH collect({ref: tagRef, tag: tag, tip: tagTip}) AS tags
+  WITH tags[0] AS newer, tags[1] AS older
+  WITH newer, older, newer.tip AS newerTip, older.tip AS olderTip
+  MATCH (newerTip)-[:HAS_PARENT*0..]->(c:Commit)
+  WHERE NOT EXISTS {
+    MATCH (olderTip)-[:HAS_PARENT*0..]->(c)
+  }
+  OPTIONAL MATCH (author:Identity)-[:AUTHORED]->(c)
+  RETURN newer.ref AS newer_tag_ref, newer.tag AS newer_tag, newer.tip AS newer_tip,
+         older.ref AS older_tag_ref, older.tag AS older_tag, older.tip AS older_tip,
+         c, author
+  LIMIT 200;
+  ```
+  
+  - **Temporal ref tracking**: Detect force-pushes and history rewrites by comparing RefState snapshots
+  ```cypher
+  // NOTE THAT THIS WILL ONLY SHOW FORCE PUSH SINCE YOUR LAST IngestRun
+  
+  MATCH (run:IngestRun)-[:SAW_REF]->(r:RefState)-[:POINTS_TO]->(c:Commit)
+  WHERE r.kind = "branch" AND r.name = "main"
+  WITH run, r, c ORDER BY run.pulledAt DESC
+  WITH collect({run: run, state: r, commit: c}) AS states
+  UNWIND range(0, size(states) - 2) AS idx
+  WITH states[idx] AS newer, states[idx + 1] AS older
+  WITH newer, older, newer.commit AS newerCommit, older.commit AS olderCommit
+  WHERE NOT EXISTS {
+    MATCH (newerCommit)-[:HAS_PARENT*0..]->(olderCommit)
+  }
+  RETURN newer.run AS newer_run, newer.state AS newer_ref, newerCommit AS newer_tip,
+         older.run AS older_run, older.state AS older_ref, olderCommit AS older_tip
+  LIMIT 10;
+  ```
+- **PGP signature auditing**: Track which commits and tags are signed, and by which keys
+  ```cypher
+  MATCH (c:Commit)-[:HAS_SIGNATURE]->(k:PGPKey)
+  WITH k, collect(c)[0..20] AS signed_commits, count(c) AS signed_count
+  RETURN k, signed_commits
+  ORDER BY signed_count DESC;
+  ```
+
 ## Project Structure
+
+
+### NOTE THAT THIS SECTION IS OUT OF DATE 
+
 
 The Core Explorer Kit is organized into several key directories, each serving a specific purpose in the data processing and visualization pipeline. Below is a detailed breakdown of the project structure, including Docker configuration and data dependencies.
 
@@ -63,8 +194,9 @@ core-explorer-kit/
 The project uses Docker Compose to orchestrate three main services:
 
 1. **neo4j** (Database)
-   - **Image**: `neo4j:latest`
+   - **Image**: `neo4j:5.20.0`
    - **Ports**: `7474` (HTTP), `7687` (Bolt protocol)
+   - **Env File**: `.env` (uses `APP_NEO4J_USER` / `APP_NEO4J_PASSWORD`)
    - **Volume**: `./data/neo4j:/data` - Persists database files
    - **Health Check**: Waits for Neo4j to be ready before starting dependent services
    - **Dependencies**: None (starts first)
@@ -72,8 +204,12 @@ The project uses Docker Compose to orchestrate three main services:
 2. **backend** (Flask API)
    - **Build**: `./backend` (uses `backend/Dockerfile`)
    - **Ports**: `5000:5000`
-   - **Volumes**: 
-     - `./data/user_supplied_repo:/app/bitcoin` - Git repository access
+   - **Env File**: `.env`
+   - **Volumes**:
+     - `./backend/app:/app` - App code for live reloading
+     - `./backend/wsgi.py:/app/wsgi.py` - WSGI entry point
+     - `./backend/wsgi.ini:/app/wsgi.ini` - WSGI configuration
+     - `${USER_SUPPLIED_REPO_PATH}:/app/bitcoin` - Git repository access (environment-configurable)
    - **Dependencies**: Waits for `neo4j` health check
    - **Network**: Connects to `appnet` to communicate with Neo4j
 
@@ -84,18 +220,17 @@ The project uses Docker Compose to orchestrate three main services:
      - `./nginx.conf:/etc/nginx/nginx.conf:ro` - Nginx configuration
      - `./frontend:/app/frontend` - Static HTML files
    - **Dependencies**: Waits for `neo4j` and `backend` services
-   - **Routing**:
-     - `/api/*` → Proxies to `backend:5000`
-     - `/process_git_data_to_neo4j/` → Proxies to `backend:5000`
-     - `/` → Serves static files from `/app/frontend`
+  - **Routing**:
+    - `/api/*` → Proxies to `backend:5000`
+    - `/` → Serves static files from `/app/frontend`
 
 ### Data Dependencies
 
 **Required Data Directories:**
 
-1. **`data/user_supplied_repo/`** (⚠️ REQUIRED)
+1. **`data/user_supplied_repo/`** (⚠️ REQUIRED, or set `USER_SUPPLIED_REPO_PATH`)
    - **Purpose**: Contains the git repository to be analyzed
-   - **Setup**: Clone your target repository here (e.g., `git clone https://github.com/bitcoin/bitcoin.git user_supplied_repo`)
+   - **Setup**: Clone your target repository here (e.g., `git clone https://github.com/bitcoin/bitcoin.git data/user_supplied_repo`)
    - **Docker Mount**: Mounted to backend container at `/app/bitcoin`
    - **Used By**: `backend/app/git_processor.py` reads from `config.CONTAINER_SIDE_REPOSITORY_PATH`
 
@@ -106,12 +241,15 @@ The project uses Docker Compose to orchestrate three main services:
    - **Persistence**: Database data persists across container restarts
    - **Note**: Delete this folder to reset the database
 
-**Optional Data:**
-- `CE_demo/data/commits.csv` - Sample commit data for frontend development
-
 ### Key Configuration Files
 
-- **`backend/app/config.py`**: Defines Neo4j connection (`bolt://neo4j:7687`) and repository path (`/app/bitcoin`)
+- **`.env`**: Environment configuration for sensitive credentials and deployment-specific settings (not committed to git)
+  - `APP_NEO4J_USER`: Neo4j database username (default: `neo4j`)
+  - `APP_NEO4J_PASSWORD`: Neo4j database password (⚠️ change for production!)
+  - `CONTAINER_SIDE_REPOSITORY_PATH`: Path to repository inside container (default: `/app/bitcoin`)
+  - `USER_SUPPLIED_REPO_PATH`: Path to repository on host (default: `./data/user_supplied_repo`)
+- **`.env.example`**: Template for `.env` file with placeholder values (committed to git)
+- **`backend/app/config.py`**: Reads configuration from environment variables with fallback defaults
 - **`nginx.conf`**: Routes API requests to backend and serves static frontend files
 - **`docker-compose.yml`**: Orchestrates all services and defines network topology
 
@@ -132,6 +270,10 @@ New contributors can stay productive by developing the Python backend locally wh
 git clone https://github.com/coreexplorer-org/core-explorer-kit.git
 cd core-explorer-kit
 
+# Create environment configuration file
+cp .env.example .env
+# Edit .env and update APP_NEO4J_PASSWORD and other settings as needed
+
 # Create + populate the data mounts expected by docker-compose.yml
 mkdir -p data
 cd data
@@ -150,11 +292,87 @@ pipenv install --dev
 3. **Start the Flask server with live reload:** `FLASK_APP=app.app FLASK_RUN_PORT=5000 flask run --debug`. The app will connect to the Neo4j container via the hostname defined in `backend/app/config.py`.
 4. **Iterate:** edit files under `backend/app/` and Flask reloads automatically. Hit `http://localhost:5000/api/graphql` (direct) or `http://localhost:8080/api/graphql` (via nginx) to interact with GraphQL.
 
-To stop everything, exit the Pipenv shell and run `docker compose down` from the repository root. Add `-v` if you purposely want to blow away the Neo4j data volume.
+To stop everything, exit the Pipenv shell and run `docker compose down` from the repository root. If you need to reset Neo4j data, delete the host folder at `./data/neo4j` (bind mount) before starting the stack again.
 
-### Bootstrap script
+### Bootstrap scripts
 
-If you want a single command that clones the repo, rebuilds the backend image, and brings the stack online (including the trusted Git directory fix), run `scripts/bootstrap-stack.sh`. It handles pulling `main`, rebuilding the backend, starting Neo4j + backend + nginx, and reapplying the `safe.directory` flag so processing endpoints immediately work.
+Two bootstrap scripts are provided for automated deployment:
+
+#### `scripts/bootstrap-stack.sh` (Local/Development)
+
+For local development or single-user setups:
+
+```bash
+./scripts/bootstrap-stack.sh
+```
+
+This script:
+- Clones the repository to `~/core-explorer-kit` if not present
+- Resets the cloned repo to the newest `origin/main` state (discarding local changes)
+- **Checks for `.env` file** and prompts to create it if missing
+- Rebuilds the backend Docker image
+- Starts Neo4j, backend, and nginx services
+- Configures git `safe.directory` for the mounted repository (reads `CONTAINER_SIDE_REPOSITORY_PATH` from `.env`)
+
+#### `scripts/bootstrap-sov-stack.sh` (Production/Server)
+
+For production deployments on dedicated servers:
+
+```bash
+./scripts/bootstrap-sov-stack.sh
+```
+
+This script:
+- Must be run as the `deploy` user (enforces security)
+- Clones/updates repository to `/opt/core-explorer-kit`
+- Resets the cloned repo to the newest `origin/main` state (discarding local changes)
+- **Checks for `.env` file** and prompts to create it if missing
+- Links persistent data storage from `/srv/core-explorer-kit/data`
+- Pulls pre-built Docker images (no local builds)
+- Starts the stack with production-ready configuration
+- Configures git `safe.directory` for the mounted repository (reads `CONTAINER_SIDE_REPOSITORY_PATH` from `.env`)
+
+#### Production: safe reset sequence (Neo4j v5 upgrade)
+
+If you are intentionally discarding Neo4j data during a production upgrade, follow this exact sequence to avoid bind-mount confusion:
+
+1. Stop the stack from `/opt/core-explorer-kit`:
+   ```bash
+   docker compose down
+   ```
+2. Remove the host data directory (this is the bind mount target):
+   ```bash
+   rm -rf /srv/core-explorer-kit/data/neo4j
+   ```
+   If you are running from the repo directory and `./data` is a symlink to `/srv/core-explorer-kit/data`, the equivalent is:
+   ```bash
+   rm -rf ./data/neo4j
+   ```
+3. Re-run the production bootstrap:
+   ```bash
+   ./scripts/bootstrap-sov-stack.sh
+   ```
+
+#### Environment Configuration
+
+Both scripts will interactively prompt you to create a `.env` file if one doesn't exist:
+
+```
+WARNING: .env file not found
+
+Would you like to create a .env file now? (y/n)
+y
+Creating .env file...
+
+APP_NEO4J_USER [neo4j]: 
+APP_NEO4J_PASSWORD [your_secure_password_here]: my_secure_password
+CONTAINER_SIDE_REPOSITORY_PATH [/app/bitcoin]: 
+USER_SUPPLIED_REPO_PATH [./data/user_supplied_repo]: 
+
+.env file created successfully!
+```
+
+You can accept defaults by pressing Enter, or provide custom values. The `.env` file is automatically ignored by git to protect sensitive credentials.
 
 ### Common developer commands
 
@@ -351,7 +569,31 @@ git clone https://github.com/coreexplorer-org/repex.git
 git clone https://github.com/coreexplorer-org/CE_demo.git
 ```
 
+### Configure environment variables
+
+Before running the stack, create a `.env` file with your configuration:
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit with your preferred editor
+nano .env  # or vim, code, etc.
+```
+
+**Important**: Update at least the `APP_NEO4J_PASSWORD` for security:
+
+```bash
+APP_NEO4J_USER=neo4j
+APP_NEO4J_PASSWORD=your_secure_password_here  # ⚠️ Change this!
+CONTAINER_SIDE_REPOSITORY_PATH=/app/bitcoin
+USER_SUPPLIED_REPO_PATH=./data/user_supplied_repo
+```
+
+The `.env` file is automatically ignored by git to protect your credentials.
+
 ### Run the full environment with Docker Compose
+
 From inside core-explorer-kit (here), run:
 
 ```bash
@@ -401,88 +643,105 @@ Navigate to the processing endpoint in your browser or use curl:
 
 ```bash
 # Via nginx (recommended)
-curl http://localhost:8080/process_git_data_to_neo4j/
+curl http://localhost:8080/api/process_git_data_to_neo4j/
 
 # Or directly to backend
-curl http://localhost:5000/process_git_data_to_neo4j/
+curl http://localhost:5000/api/process_git_data_to_neo4j/
 ```
 
 Or open in your browser:
 ```
-http://localhost:8080/process_git_data_to_neo4j/
+http://localhost:8080/api/process_git_data_to_neo4j/
 ```
 
-**Note:** this is a synchronous call & will presently timeout in the browser for large `.git` repos (such as `bitcoin`)
+**Note:** The processing runs asynchronously in a background thread and returns immediately with a Run ID. You can monitor progress using the status endpoint.
 
-**Step 3: What Happens During First-Time Import**
+**Step 3: What Happens During Ingestion**
 
-When you trigger the processing endpoint for the first time:
+When you trigger the processing endpoint:
 
-1. **Import Status Check**: The system checks Neo4j for an `ImportStatus` node
-   - If it doesn't exist, creates one with `git_import_complete = false`
-   - This tracks whether the initial commit import has been completed
-
-2. **Initial Commit Processing** (if `git_import_complete = false`):
-   - Reads all commits from the git repository at `config.CONTAINER_SIDE_REPOSITORY_PATH`
-   - For each commit, creates:
-     - **Actor nodes** for authors and committers (with name and email)
-     - **Commit nodes** with commit hash, message, summary, parent SHAs, and dates
-     - **Relationships**: `AUTHORED` and `COMMITTED` edges between actors and commits
-   - Processes commits in chronological order (oldest first)
-   - **This can take a long time** for large repositories (Bitcoin Core has ~50,000+ commits)
-   - Updates `ImportStatus` to mark `git_import_complete = true` when finished
-
-3. **Subsequent Runs** (if `git_import_complete = true`):
-   - Skips the full commit import
-   - Processes specific file/folder paths for detailed analysis:
-     - `src/policy`
-     - `src/consensus`
-     - `src/rpc/mempool.cpp`
-   - Stores folder-level commit statistics in `FileDetailRecord` nodes
+1. **Background Execution**: The ingestion starts in a separate thread, returning an immediate **Run ID**.
+2. **Schema Setup**: The system creates all required Neo4j constraints and indexes, including uniqueness constraints for commits, identities, paths, refs, PGP keys, ingest runs, and file changes.
+3. **Ingest Run Creation**: The system creates an `IngestRun` node with a `STARTED` status to track this import session.
+4. **Commit Processing (Backbone)**:
+   - Reads commits from the git repository (incrementally processes only new commits if the database already contains data).
+   - For each commit, creates/updates:
+     - **Identity nodes** for authors and committers (with `source`, `name`, and `email` properties).
+     - **Commit nodes** with `commit_hash`, `message`, `summary`, `authoredAt`, `committedAt`, and `isMerge` properties.
+     - **Relationships**: `AUTHORED` and `COMMITTED` edges (with timestamp properties), and `HAS_PARENT` edges (with `idx` property for parent order).
+   - Processes commits in batches for efficiency.
+   - Marks status as `COMMITS_COMPLETE` upon successful backbone sync.
+5. **Stage Gate Verification**:
+   - The system verifies the integrity of the commit backbone before proceeding.
+   - If verification fails (e.g., interrupted run), advanced analysis is skipped to protect data integrity.
+6. **Advanced Enrichment** (status transitions to `ENRICHING`):
+   - **Refs and Tags**: Creates `Ref` and `TagObject` nodes, and `RefState` snapshots linked to the `IngestRun`.
+   - **File Changes**: Tracks additions/deletions/renames for specified paths (defaults to sensitive paths like `src/policy`, `src/consensus`), creating `FileChange` and `Path` nodes with `HAS_CHANGE` and `OF_PATH` relationships.
+   - **PGP Signatures**: Extracts GPG signatures from commits and tags, creating `PGPKey` nodes and `HAS_SIGNATURE` relationships with validation status.
+   - **Merge Analysis**: Computes `MERGED_INCLUDES` relationships to identify which commits were introduced by each merge commit.
+7. **Completion**: The `IngestRun` status is updated to `COMPLETED`.
 
 **Step 4: Monitor Progress**
 
-You can monitor the import progress by:
+You can monitor the import progress in two ways:
 
-1. **Backend Logs**:
-   ```bash
-   docker compose logs -f backend
-   ```
-   Look for messages like:
-   - `"Import Process Status Result: {'git_import_complete': False, ...}"`
-   - `"Performing initial data import..."`
-   - `"Processed X commits into Neo4j."`
+1. **Status Endpoint**:
+   - Visit `http://localhost:8080/api/ingest_status/<run_id>/`
+   - Shows real-time status (e.g., `STARTED`, `COMMITS_COMPLETE`, `COMPLETED`) and counters for commits, signatures, and merges.
 
-2. **Neo4j Browser** (http://localhost:7474):
-   - Run queries to check node counts:
-   ```cypher
-   MATCH (a:Actor) RETURN count(a) as actors
-   MATCH (c:Commit) RETURN count(c) as commits
-   ```
+2. **Backend Logs**:
+   - `docker compose logs -f backend`
+   - Look for progress messages: `"Updated IngestRun <id> status to COMMITS_COMPLETE"`
 
 **Step 5: Verify Import Success**
 
-Once processing completes, verify the data:
+Once the status endpoint shows `COMPLETED`, verify the data:
 
-1. **Check the response**: The endpoint returns "Processing Git Data is Complete"
+1. **Check Neo4j directly**:
+   - Run queries to check node counts:
+   ```cypher
+   MATCH (i:Identity) RETURN count(i) as identities
+   MATCH (c:Commit) RETURN count(c) as commits
+   ```
 
 2. **Query via GraphQL** (http://localhost:8080/api/graphql):
    ```graphql
    query {
-     actors {
+     identities {
        name
        email
+       source
      }
    }
    ```
 
 3. **Check Neo4j directly**:
    ```cypher
-   MATCH (a:Actor)-[:AUTHORED]->(c:Commit)
-   RETURN a.name, count(c) as commits
+   MATCH (i:Identity)-[:AUTHORED]->(c:Commit)
+   RETURN i.name, count(c) as commits
    ORDER BY commits DESC
    LIMIT 10
    ```
+
+#### New Features in harden_deploy
+
+The latest version introduces several powerful analysis features:
+
+1. **PGP Signature Extraction**
+   - Automatically extracts PGP fingerprints from signed commits and tags.
+   - Enables auditing of signed vs. unsigned code in sensitive directories.
+
+2. **Granular File Change Tracking**
+   - Tracks additions, deletions, and renames at the file level.
+   - Automatically flags changes to `SENSITIVE_PATHS` defined in `file_change_processor.py`.
+
+3. **Merge Ancestry Analysis**
+   - Computes exactly which commits are brought in by a merge (reachable from 2nd parent but not 1st).
+   - Enables "Self-Merge Detection" to identify when developers merge their own work without sufficient peer review.
+
+4. **Incremental Ingestion**
+   - Only processes new commits added since the last run.
+   - Efficiently snapshots branch movements over time.
 
 #### Expected Processing Times
 
@@ -523,9 +782,9 @@ Once processing completes, verify the data:
 Once the initial import is complete:
 
 1. **Explore the GraphQL API**: Visit `http://localhost:8080/api/graphql` for the GraphiQL interface
-2. **Query repository data**: Use GraphQL queries to explore actors, commits, and relationships
+2. **Query repository data**: Use GraphQL queries to explore identities, commits, and relationships
 3. **Access the frontend**: Visit `http://localhost:8080/` to see the web interface
-4. **Re-run processing**: Subsequent calls to `/process_git_data_to_neo4j/` will process additional file paths (if configured)
+4. **Re-run processing**: Subsequent calls to `/api/process_git_data_to_neo4j/` will process additional file paths (if configured)
 
 The system is now ready to analyze your repository's development history and peer review patterns!
 

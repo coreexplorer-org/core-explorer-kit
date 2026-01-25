@@ -3,6 +3,9 @@ repex/
 repo_explorer/
 CE_demo/
 
+# Environment variables
+.env
+
 # Python
 __pycache__/
 *.py[cod]
