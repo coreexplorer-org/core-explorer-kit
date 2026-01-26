@@ -688,6 +688,33 @@ class Neo4jDriver:
                     "totalMergesProcessed": record.get("totalMergesProcessed", 0)
                 })
             return runs
+    
+    def get_recent_ingest_runs(self, limit: int = 3) -> List[Dict[str, Any]]:
+        """Get the most recent ingest runs (all statuses)."""
+        with self._driver.session() as session:
+            result = session.run(
+                """
+                MATCH (ir:IngestRun)
+                RETURN ir.id AS id, ir.status AS status, ir.pulledAt AS pulledAt,
+                       ir.totalCommitsProcessed AS totalCommitsProcessed,
+                       ir.totalSignaturesProcessed AS totalSignaturesProcessed,
+                       ir.totalMergesProcessed AS totalMergesProcessed
+                ORDER BY ir.pulledAt DESC
+                LIMIT $limit
+                """,
+                limit=limit
+            )
+            runs = []
+            for record in result:
+                runs.append({
+                    "id": record["id"],
+                    "status": record["status"],
+                    "pulledAt": record["pulledAt"],
+                    "totalCommitsProcessed": record.get("totalCommitsProcessed", 0),
+                    "totalSignaturesProcessed": record.get("totalSignaturesProcessed", 0),
+                    "totalMergesProcessed": record.get("totalMergesProcessed", 0)
+                })
+            return runs
 
     def snapshot_refs(self, run_id: str, refs: List[Dict[str, Any]]):
         """

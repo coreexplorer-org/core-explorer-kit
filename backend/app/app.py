@@ -45,18 +45,72 @@ def initiate_data_ingest():
         # Check for active ingest runs
         active_runs = db.get_active_ingest_runs()
         
-        warning_html = ""
+        # Get recent completed ingest runs (last 3)
+        all_recent_runs = db.get_recent_ingest_runs(limit=10)  # Get more to filter completed
+        completed_runs = [run for run in all_recent_runs if run.get('status') == 'COMPLETED'][:3]
+        
+        # Helper function to format datetime
+        def format_datetime(dt):
+            if dt is None:
+                return 'Unknown'
+            if hasattr(dt, 'strftime'):
+                return dt.strftime("%Y-%m-%d %H:%M:%S")
+            elif hasattr(dt, 'to_native'):
+                native_dt = dt.to_native()
+                return native_dt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(native_dt, 'strftime') else str(dt)
+            return str(dt)
+        
+        # Helper function to get status badge style
+        def get_status_style(status):
+            return {
+                'STARTED': 'background-color: #cce5ff; color: #004085;',
+                'COMMITS_COMPLETE': 'background-color: #fff3cd; color: #856404;',
+                'ENRICHING': 'background-color: #d1ecf1; color: #0c5460;',
+                'COMPLETED': 'background-color: #d4edda; color: #155724;'
+            }.get(status, 'background-color: #e2e3e5; color: #383d41;')
+        
+        # Format active runs list
+        active_runs_html = ""
         if active_runs:
-            warning_html = "<div style='background-color: #fff3cd; border: 1px solid #ffc107; padding: 10px; margin: 10px 0; border-radius: 4px;'>"
-            warning_html += "<strong>⚠ Warning:</strong> There are already active ingest runs:<ul>"
+            active_runs_html = "<div style='background-color: #fff3cd; border: 1px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;'>"
+            active_runs_html += "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>"
+            active_runs_html += "<h4 style='margin: 0; color: #333;'>Active Ingest Jobs</h4>"
+            active_runs_html += "<span style='font-size: 0.85em; color: #856404;'><span style='display: inline-block; width: 8px; height: 8px; background-color: #28a745; border-radius: 50%; animation: pulse 2s infinite; margin-right: 5px;'></span>Auto-refreshing every 10 seconds</span>"
+            active_runs_html += "</div>"
+            active_runs_html += "<ul style='list-style: none; padding: 0; margin: 0;'>"
             for run in active_runs:
-                run_pulled_at = run.get('pulledAt', 'Unknown')
-                if hasattr(run_pulled_at, 'strftime'):
-                    run_pulled_at = run_pulled_at.strftime("%Y-%m-%d %H:%M:%S")
-                warning_html += f"<li><a href='/api/ingest_status/{run['id']}/'>{run['id'][:8]}...</a> - Status: {run['status']} (Started: {run_pulled_at})</li>"
-            warning_html += "</ul>"
-            warning_html += "<p>Concurrent runs are allowed but may consume significant resources. Consider waiting for active runs to complete.</p>"
-            warning_html += "</div>"
+                run_pulled_at = format_datetime(run.get('pulledAt'))
+                status_style = get_status_style(run['status'])
+                active_runs_html += f"""
+                <li style='padding: 10px; margin: 5px 0; background-color: white; border-radius: 4px; border-left: 3px solid #ffc107;'>
+                    <a href='/api/ingest_status/{run['id']}/' style='text-decoration: none; color: #007bff; font-weight: bold;'>{run['id'][:8]}...</a>
+                    <span style='display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-left: 10px; {status_style}'>{run['status']}</span>
+                    <span style='color: #666; font-size: 0.9em; margin-left: 10px;'>{run_pulled_at}</span>
+                </li>
+                """
+            active_runs_html += "</ul></div>"
+        else:
+            active_runs_html = "<div style='background-color: #e7f3ff; border: 1px solid #007bff; padding: 15px; margin: 20px 0; border-radius: 4px;'><p style='margin: 0; color: #666;'>No active ingest jobs.</p></div>"
+        
+        # Format completed runs list
+        completed_runs_html = ""
+        if completed_runs:
+            completed_runs_html = "<div style='background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; margin: 20px 0; border-radius: 4px;'>"
+            completed_runs_html += "<h4 style='margin-top: 0; color: #333;'>Recent Completed Jobs</h4>"
+            completed_runs_html += "<ul style='list-style: none; padding: 0; margin: 0;'>"
+            for run in completed_runs:
+                run_pulled_at = format_datetime(run.get('pulledAt'))
+                status_style = get_status_style(run['status'])
+                completed_runs_html += f"""
+                <li style='padding: 10px; margin: 5px 0; background-color: white; border-radius: 4px; border-left: 3px solid #28a745;'>
+                    <a href='/api/ingest_status/{run['id']}/' style='text-decoration: none; color: #007bff; font-weight: bold;'>{run['id'][:8]}...</a>
+                    <span style='display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: bold; margin-left: 10px; {status_style}'>{run['status']}</span>
+                    <span style='color: #666; font-size: 0.9em; margin-left: 10px;'>{run_pulled_at}</span>
+                </li>
+                """
+            completed_runs_html += "</ul></div>"
+        else:
+            completed_runs_html = "<div style='background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; margin: 20px 0; border-radius: 4px;'><p style='margin: 0; color: #666;'>No completed ingest jobs yet.</p></div>"
         
         # If POST request, start the processing
         if request.method == "POST":
@@ -142,7 +196,6 @@ def initiate_data_ingest():
 <body>
     <div class="container">
         <h3>Ingestion Started</h3>
-        {warning_html}
         <div class="success-box">
             <strong>✓ Ingest process has been started in the background</strong>
         </div>
@@ -166,11 +219,17 @@ def initiate_data_ingest():
             return html
         
         # GET request - show the button/form
+        # Add auto-refresh if there are active jobs
+        auto_refresh_tag = ""
+        if active_runs:
+            auto_refresh_tag = '<meta http-equiv="refresh" content="10">'
+        
         html = f"""
 <!DOCTYPE html>
 <html>
 <head>
     <title>Start Git Data Ingest</title>
+    {auto_refresh_tag}
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -218,12 +277,17 @@ def initiate_data_ingest():
             margin: 20px 0;
             border-radius: 4px;
         }}
+        @keyframes pulse {{
+            0% {{ opacity: 1; }}
+            50% {{ opacity: 0.5; }}
+            100% {{ opacity: 1; }}
+        }}
     </style>
 </head>
 <body>
     <div class="container">
         <h3>Start Git Data Ingest</h3>
-        {warning_html}
+        
         <div class="info-box">
             <p><strong>What this does:</strong></p>
             <ul>
@@ -234,9 +298,21 @@ def initiate_data_ingest():
             </ul>
             <p><strong>Note:</strong> Initial ingest of large repositories can take 10+ minutes or more on slower machines.</p>
         </div>
+        
         <form method="POST" action="/api/initiate_data_ingest/">
             <button type="submit" class="start-button">Start Ingest Process</button>
         </form>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;"/>
+        
+        {active_runs_html}
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;"/>
+        
+        {completed_runs_html}
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;"/>
+        
         <p><small><b>Hostname:</b> {socket.gethostname()}</small></p>
     </div>
 </body>
