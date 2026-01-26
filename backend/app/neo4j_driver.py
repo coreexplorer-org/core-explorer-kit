@@ -6,7 +6,10 @@ from commit_details import CommitDetails
 import config
 import time
 import json
+import logging
 from git import Commit, Actor, Repo, TagReference
+
+logger = logging.getLogger(__name__)
 
 
 class Neo4jDriver:
@@ -27,10 +30,10 @@ class Neo4jDriver:
                     auth=self._auth
                 )
                 self.driver.verify_connectivity()  # Ensure connection works
-                print("Connected to Neo4j successfully.")
+                logger.info("Connected to Neo4j successfully.")
                 break
             except Exception as e:
-                print(f"Connection attempt {attempt + 1} failed: {e}")
+                logger.error(f"Connection attempt {attempt + 1} failed: {e}")
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)
                 else:
@@ -57,7 +60,7 @@ class Neo4jDriver:
     def clear_database(self):
         with self.driver.session() as session:
             session.run("MATCH (n) DETACH DELETE n")
-            print("Database cleared.")
+            logger.info("Database cleared.")
 
     def create_node(self, label, properties):
         with self.driver.session() as session:
@@ -95,7 +98,7 @@ class Neo4jDriver:
         with self.driver.session() as session:
             query = "MERGE (n:Actor {name: $props.name, email: $props.email}) RETURN n"
             result = session.run(query, props=properties)
-            print(f"merge actor ${properties.name}")
+            logger.debug(f"merge actor ${properties.name}")
             record = self._require_single_record(result, "Failed to create or retrieve node with label Actor")
             return record["n"]
         
@@ -381,7 +384,7 @@ class Neo4jDriver:
                 total_duplicate_nodes += (count - 1)  # -1 because we keep one
             
             if duplicates:
-                print(f"Found {len(duplicates)} duplicate FileChange groups affecting {total_duplicate_nodes} nodes")
+                logger.warning(f"Found {len(duplicates)} duplicate FileChange groups affecting {total_duplicate_nodes} nodes")
                 
                 if cleanup:
                     # Delete duplicates, keeping the first node in each group
@@ -398,7 +401,7 @@ class Neo4jDriver:
                     cleanup_result = session.run(cleanup_query)
                     deleted_record = cleanup_result.single()
                     deleted_count = deleted_record["deleted_count"] if deleted_record else 0
-                    print(f"Cleaned up {deleted_count} duplicate FileChange nodes")
+                    logger.info(f"Cleaned up {deleted_count} duplicate FileChange nodes")
                     
                     return {
                         "duplicate_groups": len(duplicates),
@@ -409,9 +412,9 @@ class Neo4jDriver:
                 else:
                     # Just report
                     for dup in duplicates[:5]:  # Show first 5
-                        print(f"  Duplicate: commit={dup['commit_hash'][:8]} path={dup['path']} count={dup['count']}")
+                        logger.warning(f"  Duplicate: commit={dup['commit_hash'][:8]} path={dup['path']} count={dup['count']}")
                     if len(duplicates) > 5:
-                        print(f"  ... and {len(duplicates) - 5} more groups")
+                        logger.warning(f"  ... and {len(duplicates) - 5} more groups")
                     
                     return {
                         "duplicate_groups": len(duplicates),
@@ -420,7 +423,7 @@ class Neo4jDriver:
                         "details": duplicates
                     }
             else:
-                print("No duplicate FileChange nodes found")
+                logger.info("No duplicate FileChange nodes found")
                 return {
                     "duplicate_groups": 0,
                     "duplicate_nodes": 0,
@@ -431,10 +434,10 @@ class Neo4jDriver:
     def create_constraints(self):
         """Create all required constraints for the new schema."""
         # Check for and clean up FileChange duplicates before creating the constraint
-        print("Checking for duplicate FileChange nodes...")
+        logger.info("Checking for duplicate FileChange nodes...")
         duplicate_info = self.check_and_cleanup_filechange_duplicates(cleanup=True)
         if duplicate_info["duplicate_groups"] > 0:
-            print(f"Cleaned up {duplicate_info['deleted_count']} duplicate FileChange nodes before applying constraint")
+            logger.info(f"Cleaned up {duplicate_info['deleted_count']} duplicate FileChange nodes before applying constraint")
         
         with self._driver.session() as session:
             constraints = [
@@ -457,9 +460,9 @@ class Neo4jDriver:
             for constraint_query in constraints:
                 try:
                     session.run(constraint_query)
-                    print(f"Created constraint: {constraint_query[:50]}...")
+                    logger.info(f"Created constraint: {constraint_query[:50]}...")
                 except Exception as e:
-                    print(f"Constraint may already exist or error: {e}")
+                    logger.error(f"Constraint may already exist or error: {e}")
             
             # Indexes
             indexes = [
@@ -471,9 +474,9 @@ class Neo4jDriver:
             for index_query in indexes:
                 try:
                     session.run(index_query)
-                    print(f"Created index: {index_query[:50]}...")
+                    logger.info(f"Created index: {index_query[:50]}...")
                 except Exception as e:
-                    print(f"Index may already exist or error: {e}")
+                    logger.error(f"Index may already exist or error: {e}")
 
     def batch_upsert_commits(self, commit_rows: List[Dict[str, Any]], batch_size: int = 1000):
         """
@@ -489,7 +492,7 @@ class Neo4jDriver:
             batch = commit_rows[i:i + batch_size]
             with self._driver.session() as session:
                 session.execute_write(self._batch_upsert_commits_tx, batch)
-            print(f"Processed commit batch {i//batch_size + 1}/{(len(commit_rows)-1)//batch_size + 1}")
+            logger.info(f"Processed commit batch {i//batch_size + 1}/{(len(commit_rows)-1)//batch_size + 1}")
 
     @staticmethod
     def _batch_upsert_commits_tx(tx, rows: List[Dict[str, Any]]):
@@ -549,7 +552,7 @@ class Neo4jDriver:
             batch = change_rows[i:i + batch_size]
             with self._driver.session() as session:
                 session.execute_write(self._batch_upsert_file_changes_tx, batch)
-            print(f"Processed file change batch {i//batch_size + 1}/{(len(change_rows)-1)//batch_size + 1}")
+            logger.info(f"Processed file change batch {i//batch_size + 1}/{(len(change_rows)-1)//batch_size + 1}")
 
     @staticmethod
     def _batch_upsert_file_changes_tx(tx, rows: List[Dict[str, Any]]):
@@ -630,7 +633,7 @@ class Neo4jDriver:
             """
             
             session.run(query, **params)
-            print(f"Updated IngestRun {run_id} status to {status} {kwargs if kwargs else ''}")
+            logger.info(f"Updated IngestRun {run_id} status to {status} {kwargs if kwargs else ''}")
 
     def get_ingest_run_status(self, run_id: str) -> Optional[Dict[str, Any]]:
         """Fetch the status and progress of an IngestRun."""
@@ -857,7 +860,7 @@ class Neo4jDriver:
             with self._driver.session() as session:
                 session.execute_write(self._batch_upsert_pgp_keys_tx, batch)
             if len(key_rows) > batch_size:
-                print(f"Processed PGP key batch {i//batch_size + 1}/{(len(key_rows)-1)//batch_size + 1}")
+                logger.info(f"Processed PGP key batch {i//batch_size + 1}/{(len(key_rows)-1)//batch_size + 1}")
 
     @staticmethod
     def _batch_upsert_pgp_keys_tx(tx, rows: List[Dict[str, Any]]):
@@ -900,7 +903,7 @@ class Neo4jDriver:
             with self._driver.session() as session:
                 session.execute_write(self._batch_create_signatures_tx, batch)
             if len(signature_rows) > batch_size:
-                print(f"Processed signature batch {i//batch_size + 1}/{(len(signature_rows)-1)//batch_size + 1}")
+                logger.info(f"Processed signature batch {i//batch_size + 1}/{(len(signature_rows)-1)//batch_size + 1}")
 
     @staticmethod
     def _batch_create_signatures_tx(tx, rows: List[Dict[str, Any]]):
@@ -952,7 +955,7 @@ class Neo4jDriver:
             with self._driver.session() as session:
                 session.execute_write(self._batch_mark_commits_checked_tx, batch)
             if len(commit_shas) > batch_size:
-                print(f"Marked {min(i + batch_size, len(commit_shas))}/{len(commit_shas)} commits as checked")
+                logger.info(f"Marked {min(i + batch_size, len(commit_shas))}/{len(commit_shas)} commits as checked")
 
     @staticmethod
     def _batch_mark_commits_checked_tx(tx, commit_shas: List[str]):
@@ -986,7 +989,7 @@ class Neo4jDriver:
             with self._driver.session() as session:
                 session.execute_write(self._batch_create_merged_includes_tx, batch)
             if len(merge_rows) > batch_size:
-                print(f"Processed MERGED_INCLUDES batch {i//batch_size + 1}/{(len(merge_rows)-1)//batch_size + 1}")
+                logger.info(f"Processed MERGED_INCLUDES batch {i//batch_size + 1}/{(len(merge_rows)-1)//batch_size + 1}")
 
     @staticmethod
     def _batch_create_merged_includes_tx(tx, rows: List[Dict[str, Any]]):

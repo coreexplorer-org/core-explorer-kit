@@ -6,6 +6,9 @@ from functools import wraps
 from flask import Flask, request, make_response, redirect, url_for
 from flask_graphql import GraphQLView
 
+import config
+config.setup_logging()
+
 from git_processor import process_git_data
 from neo4j_driver import Neo4jDriver
 from schema import schema
