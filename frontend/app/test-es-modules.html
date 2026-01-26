@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ES Modules Test</title>
+</head>
+<body>
+  <h1>ES Modules Test</h1>
+  <div id="output"></div>
+  <script type="module">
+    import { greet } from './test-module.js';
+    document.getElementById('output').textContent = greet('ES Modules');
+  </script>
+</body>
+</html>

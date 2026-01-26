@@ -236,6 +236,51 @@ body.light-mode .theme-toggle-btn:hover {
     border-color: var(--bs-primary);
     box-shadow: 0 0 5px rgba(var(--bs-primary-rgb), 0.5);
 }
+.search-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.dropdown-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background-color: var(--bs-secondary);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-sm);
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    margin-top: 2px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+body.light-mode .dropdown-results {
+    background-color: #ffffff;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+.dropdown-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--bs-border-color);
+    font-family: var(--bs-font-monospace);
+    font-size: 0.9em;
+    color: var(--bs-body-color);
+    transition: background-color 0.2s;
+}
+.dropdown-item:last-child {
+    border-bottom: none;
+}
+.dropdown-item:hover,
+.dropdown-item.selected {
+    background-color: var(--bs-primary);
+    color: var(--bs-body-bg);
+}
+body.light-mode .dropdown-item:hover,
+body.light-mode .dropdown-item.selected {
+    background-color: var(--bs-primary);
+    color: #ffffff;
+}
 .search-btn {
     background: none;
     border: none;
@@ -394,6 +439,18 @@ h4 {
 .contribution-table td {
     text-align: right;
 }
+.contribution-table td:first-child {
+    text-align: left;
+}
+.contribution-table td a {
+    color: var(--bs-body-color);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+.contribution-table td a:hover {
+    color: var(--bs-link-hover-color);
+    text-decoration: underline;
+}
 .nav-link i {
     font-size: 1em;
     vertical-align: middle;
@@ -504,12 +561,18 @@ h4 {
         margin-top: 5px;
         width: 100%;
     }
+    .search-wrapper {
+        width: 100%;
+    }
     .search-bar {
         width: calc(100% - 36px);
     }
     .search-btn {
         width: 32px;
         margin-left: 4px;
+    }
+    .dropdown-results {
+        width: 100%;
     }
 }
 @media (max-width: 575px) {
@@ -545,7 +608,7 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
 <body class="light-mode">
   <nav class="navbar navbar-expand-lg navbar-dark box" id="navbar">
     <div class="navbar-top">
-      <a class="navbar-brand" href="#">
+      <a class="navbar-brand" href="index.html">
         <img src="https://i.imgur.com/0cx91au.png" alt="Core Explorer Logo" class="cek-logo">
         <span class="navbar-brand-text">
           <span>Core</span>
@@ -561,8 +624,11 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
       </ul>
     </div>
     <div class="search-container">
-      <input type="text" class="search-bar" id="search-bar" placeholder="Enter contributor email...">
-      <button class="search-btn" id="search-btn"><i class="fas fa-search"></i></button>
+      <div class="search-wrapper" style="position: relative;">
+        <input type="text" class="search-bar" id="search-bar" placeholder="Search contributors by email..." autocomplete="off">
+        <button class="search-btn" id="search-btn"><i class="fas fa-search"></i></button>
+        <div class="dropdown-results" id="dropdown-results" style="display: none;"></div>
+      </div>
     </div>
   </nav>
 
@@ -625,47 +691,23 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
         </div>
         <div class="row">
           <div class="col-12">
-            <h4>Top Files Contributed To</h4>
+            <h4>Top Files Contributed To (Tracked Paths Only)</h4>
+            <p style="text-align: center; font-size: 0.9em; color: #666; margin-bottom: 10px;">
+              <em>Note: Only shows files from tracked paths (e.g., src/policy, src/consensus). Many commits may not have file change data.</em>
+            </p>
             <div class="contribution-table">
               <table>
                 <thead>
                   <tr>
                     <th>File Name</th>
-                    <th>Lines of Code Contributed</th>
+                    <th>Commits</th>
+                    <th>Lines Added</th>
+                    <th>Lines Deleted</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td>main.cpp</td>
-                    <td>10,000</td>
-                  </tr>
-                  <tr>
-                    <td>bitcoin.h</td>
-                    <td>5,000</td>
-                  </tr>
-                  <tr>
-                    <td>net.cpp</td>
-                    <td>4,000</td>
-                  </tr>
-                  <tr>
-                    <td>db.cpp</td>
-                    <td>3,500</td>
-                  </tr>
-                  <tr>
-                    <td>util.cpp</td>
-                    <td>3,000</td>
-                  </tr>
-                  <tr>
-                    <td>script.cpp</td>
-                    <td>2,500</td>
-                  </tr>
-                  <tr>
-                    <td>rpc.cpp</td>
-                    <td>2,000</td>
-                  </tr>
-                  <tr>
-                    <td>init.cpp</td>
-                    <td>1,500</td>
+                    <td colspan="4">Loading...</td>
                   </tr>
                 </tbody>
               </table>
@@ -696,8 +738,13 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
       themeToggleFooter: document.getElementById('theme-toggle-footer'),
       navbar: document.getElementById('navbar'),
       searchBar: document.getElementById('search-bar'),
-      searchBtn: document.getElementById('search-btn')
+      searchBtn: document.getElementById('search-btn'),
+      dropdownResults: document.getElementById('dropdown-results')
     };
+
+    // Store all identity emails
+    let allIdentityEmails = [];
+    let selectedIndex = -1;
     function toggleTheme() {
       document.body.classList.toggle('light-mode');
       elements.navbar.classList.toggle('navbar-dark');
@@ -746,10 +793,24 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
     // Function to fetch contributor data and repository details
     async function fetchContributorData(email) {
       try {
-        const query = `
+        // Fetch identity, stats, commits over time, and top files
+        const identityQuery = `
           query {
-            actor(email: "${email}") {
+            identity(email: "${email}", source: "git") {
               name
+              email
+              source
+            }
+            identityStats(email: "${email}", source: "git") {
+              totalCommits
+              totalLinesAdded
+              totalLinesDeleted
+              filesCreated
+              firstCommitDate
+              lastCommitDate
+              signedCommits
+              unsignedCommits
+              signedPercentage
             }
             repository:githubRepository(url: "https://github.com/bitcoin/bitcoin.git") {
               name
@@ -758,14 +819,33 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
             }
           }
         `;
-        const response = await sendQuery(query);
+        const identityResponse = await sendQuery(identityQuery);
 
         // Extract contributor name
-        const contributorName = response.data?.actor?.name || 'Contributor not found';
+        const identity = identityResponse.data?.identity;
+        const stats = identityResponse.data?.identityStats;
+        const contributorName = identity?.name || 'Contributor not found';
         document.getElementById('contributor-name').textContent = contributorName;
 
+        // Update stats
+        if (stats) {
+          document.getElementById('total-commits').textContent = stats.totalCommits || 0;
+          document.getElementById('total-commits-row').textContent = stats.totalCommits || 0;
+          document.getElementById('lines-of-code').textContent = (stats.totalLinesAdded || 0).toLocaleString();
+          document.getElementById('lines-of-code-row').textContent = (stats.totalLinesAdded || 0).toLocaleString();
+          document.getElementById('files-created').textContent = stats.filesCreated || 0;
+          document.getElementById('files-created-row').textContent = stats.filesCreated || 0;
+          
+          // Update start date
+          if (stats.firstCommitDate) {
+            const startDate = new Date(stats.firstCommitDate);
+            document.getElementById('contributor-start').textContent = 
+              `Started Contributing: ${startDate.toLocaleDateString()}`;
+          }
+        }
+
         // Extract repository details
-        const repo = response.data?.repository || {};
+        const repo = identityResponse.data?.repository || {};
         const repoName = repo.name || 'Unknown';
         const repoDescription = repo.description || 'No description available';
         const repoUrl = repo.url || '#';
@@ -773,45 +853,81 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
           Repository: <a href="${repoUrl}" target="_blank">${repoName}</a><br>
           Description: ${repoDescription}
         `;
+
+        // Fetch commits over time for chart
+        const commitsQuery = `
+          query {
+            identityCommitsOverTime(email: "${email}", source: "git", timeBucket: "month") {
+              period
+              count
+              date
+            }
+          }
+        `;
+        const commitsResponse = await sendQuery(commitsQuery);
+        const timeBuckets = commitsResponse.data?.identityCommitsOverTime || [];
+        
+        // Update chart with real data
+        if (timeBuckets.length > 0) {
+          updateCommitsChart(timeBuckets);
+        }
+
+        // Fetch top files
+        const filesQuery = `
+          query {
+            identityTopFiles(email: "${email}", source: "git", limit: 8) {
+              path
+              linesAdded
+              linesDeleted
+              totalChanges
+              commitCount
+            }
+          }
+        `;
+        const filesResponse = await sendQuery(filesQuery);
+        const topFiles = filesResponse.data?.identityTopFiles || [];
+        
+        // Update top files table
+        updateTopFilesTable(topFiles);
+
       } catch (error) {
+        console.error('Error fetching contributor data:', error);
         document.getElementById('contributor-name').textContent = 'Please verify the email or try a different contributor email';
         document.getElementById('repo-details').innerHTML = 'Please verify the email or try a different contributor email';
       }
     }
 
-    // Function to fetch contributor name based on search input
-    async function searchContributor() {
-      const email = elements.searchBar.value.trim();
-      if (!email) {
-        alert('Please enter a valid email address');
-        return;
+    // Function to update commits chart with real data
+    function updateCommitsChart(timeBuckets) {
+      const chartElement = document.getElementById('commitsChart');
+      if (!chartElement) return;
+
+      // Destroy existing chart if it exists
+      if (window.commitsChartInstance) {
+        window.commitsChartInstance.destroy();
       }
-      await fetchContributorData(email);
-    }
 
-    // Function to render the commits over time chart
-    function renderCommitsChart() {
-      // Mock data: Cumulative commits over time from Jan 2009 to Dec 2011
-      const labels = [
-        'Jan 2009', 'Feb 2009', 'Mar 2009', 'Jun 2009', 'Sep 2009', 'Dec 2009',
-        'Mar 2010', 'Jun 2010', 'Sep 2010', 'Dec 2010',
-        'Mar 2011', 'Jun 2011', 'Sep 2011', 'Dec 2011'
-      ];
-      const commitsData = [
-        10, 30, 60, 90, 120, 150, // 2009
-        180, 200, 220, 250,       // 2010
-        260, 265, 270, 271        // 2011 (total 271 commits)
-      ];
+      const labels = timeBuckets.map(bucket => {
+        const date = new Date(bucket.date);
+        return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+      });
+      
+      // Calculate cumulative commits
+      let cumulative = 0;
+      const commitsData = timeBuckets.map(bucket => {
+        cumulative += bucket.count;
+        return cumulative;
+      });
 
-      const ctx = document.getElementById('commitsChart').getContext('2d');
-      new Chart(ctx, {
+      const ctx = chartElement.getContext('2d');
+      window.commitsChartInstance = new Chart(ctx, {
         type: 'line',
         data: {
           labels: labels,
           datasets: [{
             label: 'Total Commits Over Time',
             data: commitsData,
-            borderColor: 'rgba(247, 147, 26, 1)', // --bs-primary in dark mode
+            borderColor: 'rgba(247, 147, 26, 1)',
             backgroundColor: 'rgba(247, 147, 26, 0.2)',
             fill: true,
             tension: 0.3
@@ -860,19 +976,296 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
       });
     }
 
-    // Add event listeners for the search button and Enter key
-    elements.searchBtn.addEventListener('click', searchContributor);
-    elements.searchBar.addEventListener('keypress', function(event) {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        elements.searchBtn.click();
+    // Function to update top files table
+    function updateTopFilesTable(files) {
+      const tbody = document.querySelector('.contribution-table tbody');
+      if (!tbody) return;
+
+      tbody.innerHTML = '';
+      
+      if (files.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4">No file contributions found in tracked paths</td></tr>';
+        return;
+      }
+
+      files.forEach(file => {
+        const row = document.createElement('tr');
+        const filePath = file.path || '';
+        const fileUrl = filePath ? `file.html?file=${encodeURIComponent(filePath)}` : '#';
+        row.innerHTML = `
+          <td><a href="${fileUrl}">${file.path}</a></td>
+          <td>${(file.commitCount || 0).toLocaleString()}</td>
+          <td>${(file.linesAdded || 0).toLocaleString()}</td>
+          <td>${(file.linesDeleted || 0).toLocaleString()}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    // Simple fuzzy search function
+    function fuzzyMatch(pattern, text) {
+      pattern = pattern.toLowerCase();
+      text = text.toLowerCase();
+      
+      // Exact match gets highest score
+      if (text.includes(pattern)) {
+        return { match: true, score: text.indexOf(pattern) };
+      }
+      
+      // Check if all characters in pattern appear in order in text
+      let patternIdx = 0;
+      let textIdx = 0;
+      let matchCount = 0;
+      
+      while (textIdx < text.length && patternIdx < pattern.length) {
+        if (text[textIdx] === pattern[patternIdx]) {
+          matchCount++;
+          patternIdx++;
+        }
+        textIdx++;
+      }
+      
+      if (patternIdx === pattern.length) {
+        return { match: true, score: text.length - matchCount };
+      }
+      
+      return { match: false, score: Infinity };
+    }
+
+    // Function to filter and sort identity emails
+    function filterIdentityEmails(query) {
+      if (!query || query.trim() === '') {
+        return [];
+      }
+      
+      const results = allIdentityEmails
+        .map(email => {
+          const match = fuzzyMatch(query, email);
+          return { email, ...match };
+        })
+        .filter(result => result.match)
+        .sort((a, b) => {
+          // Sort by score (lower is better), then alphabetically
+          if (a.score !== b.score) {
+            return a.score - b.score;
+          }
+          return a.email.localeCompare(b.email);
+        })
+        .slice(0, 20); // Limit to top 20 results
+      
+      return results;
+    }
+
+    // Function to display dropdown results
+    function displayDropdownResults(results) {
+      if (results.length === 0) {
+        elements.dropdownResults.style.display = 'none';
+        return;
+      }
+      
+      elements.dropdownResults.innerHTML = '';
+      results.forEach((result, index) => {
+        const item = document.createElement('div');
+        item.className = 'dropdown-item';
+        item.textContent = result.email;
+        item.dataset.email = result.email;
+        item.addEventListener('click', () => {
+          selectIdentity(result.email);
+        });
+        elements.dropdownResults.appendChild(item);
+      });
+      
+      elements.dropdownResults.style.display = 'block';
+      selectedIndex = -1;
+    }
+
+    // Function to select an identity and reload page
+    function selectIdentity(email) {
+      // Hide dropdown
+      elements.dropdownResults.style.display = 'none';
+      
+      // Reload page with email as query parameter
+      const url = new URL(window.location.href);
+      url.searchParams.set('email', email);
+      window.location.href = url.toString();
+    }
+
+    // Function to load all identity emails
+    async function loadAllIdentityEmails() {
+      try {
+        const query = `
+          query {
+            allIdentityEmails
+          }
+        `;
+        const response = await sendQuery(query);
+        allIdentityEmails = response.data?.allIdentityEmails || [];
+        console.log(`Loaded ${allIdentityEmails.length} identity emails`);
+      } catch (error) {
+        console.error('Error loading identity emails:', error);
+        allIdentityEmails = [];
+      }
+    }
+
+    // Check for email parameter in URL on page load
+    function checkUrlForEmail() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const email = urlParams.get('email');
+      if (email) {
+        elements.searchBar.value = email;
+        fetchContributorData(email);
+      }
+    }
+
+    // Function to fetch contributor name based on search input
+    async function searchContributor() {
+      const email = elements.searchBar.value.trim();
+      if (!email) {
+        alert('Please enter a valid email address');
+        return;
+      }
+      // Reload page with email
+      selectIdentity(email);
+    }
+
+    // Function to render the commits over time chart (initial placeholder)
+    function renderCommitsChart() {
+      // This will be replaced by updateCommitsChart when real data is loaded
+      const chartElement = document.getElementById('commitsChart');
+      if (!chartElement) return;
+
+      const ctx = chartElement.getContext('2d');
+      window.commitsChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{
+            label: 'Total Commits Over Time',
+            data: [],
+            borderColor: 'rgba(247, 147, 26, 1)',
+            backgroundColor: 'rgba(247, 147, 26, 0.2)',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Date',
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              ticks: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              grid: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-border-color').trim()
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Total Commits',
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              ticks: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              grid: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-border-color').trim()
+              },
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            legend: {
+              labels: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Handle search bar input
+    elements.searchBar.addEventListener('input', function(event) {
+      const query = event.target.value.trim();
+      if (query.length > 0) {
+        const results = filterIdentityEmails(query);
+        displayDropdownResults(results);
+      } else {
+        elements.dropdownResults.style.display = 'none';
       }
     });
 
-    // Fetch initial data (Satoshi's profile) and render chart when the page loads
+    // Handle keyboard navigation in dropdown
+    elements.searchBar.addEventListener('keydown', function(event) {
+      const items = elements.dropdownResults.querySelectorAll('.dropdown-item');
+      
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+        updateSelectedItem(items);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        selectedIndex = Math.max(selectedIndex - 1, -1);
+        updateSelectedItem(items);
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        if (selectedIndex >= 0 && items[selectedIndex]) {
+          selectIdentity(items[selectedIndex].dataset.email);
+        } else {
+          searchContributor();
+        }
+      } else if (event.key === 'Escape') {
+        elements.dropdownResults.style.display = 'none';
+        selectedIndex = -1;
+      }
+    });
+
+    function updateSelectedItem(items) {
+      items.forEach((item, index) => {
+        if (index === selectedIndex) {
+          item.classList.add('selected');
+          item.scrollIntoView({ block: 'nearest' });
+        } else {
+          item.classList.remove('selected');
+        }
+      });
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(event) {
+      if (!elements.searchBar.contains(event.target) && 
+          !elements.dropdownResults.contains(event.target)) {
+        elements.dropdownResults.style.display = 'none';
+      }
+    });
+
+    // Add event listeners for the search button and Enter key
+    elements.searchBtn.addEventListener('click', searchContributor);
+    elements.searchBar.addEventListener('keypress', function(event) {
+      if (event.key === 'Enter' && selectedIndex === -1) {
+        event.preventDefault();
+        searchContributor();
+      }
+    });
+
+    // Fetch initial data and render chart when the page loads
     window.onload = function() {
-      fetchContributorData("satoshin@gmx.com");
-      renderCommitsChart();
+      loadAllIdentityEmails().then(() => {
+        checkUrlForEmail();
+        // If no email in URL, load default (Satoshi)
+        const urlParams = new URLSearchParams(window.location.search);
+        if (!urlParams.get('email')) {
+          fetchContributorData("satoshin@gmx.com");
+        }
+        renderCommitsChart();
+      });
     };
   </script>
 </body>
