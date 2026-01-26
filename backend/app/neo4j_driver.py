@@ -589,7 +589,10 @@ class Neo4jDriver:
                     ir.status = 'STARTED',
                     ir.totalCommitsProcessed = 0,
                     ir.totalSignaturesProcessed = 0,
-                    ir.totalMergesProcessed = 0
+                    ir.totalMergesProcessed = 0,
+                    ir.currentStage = 'STARTED',
+                    ir.stageStartedAt = $pulled_at,
+                    ir.lastProgressAt = $pulled_at
                 RETURN ir.id AS id
                 """,
                 run_id=run_id,
@@ -600,9 +603,21 @@ class Neo4jDriver:
 
     def update_ingest_run_status(self, run_id: str, status: str, **kwargs):
         """Update the status and progress of an IngestRun."""
+        from datetime import datetime
+        
         with self._driver.session() as session:
             set_clauses = ["ir.status = $status"]
             params = {"run_id": run_id, "status": status}
+            
+            # Always update lastProgressAt when status changes
+            now = datetime.now()
+            set_clauses.append("ir.lastProgressAt = $now")
+            params["now"] = now
+            
+            # If status is changing, update currentStage and stageStartedAt
+            if "currentStage" not in kwargs:
+                set_clauses.append("ir.currentStage = $status")
+                set_clauses.append("ir.stageStartedAt = $now")
             
             for key, value in kwargs.items():
                 if value is not None:
@@ -626,7 +641,10 @@ class Neo4jDriver:
                 RETURN ir.id AS id, ir.status AS status, ir.pulledAt AS pulledAt, 
                        ir.totalCommitsProcessed AS totalCommitsProcessed,
                        ir.totalSignaturesProcessed AS totalSignaturesProcessed,
-                       ir.totalMergesProcessed AS totalMergesProcessed
+                       ir.totalMergesProcessed AS totalMergesProcessed,
+                       ir.currentStage AS currentStage,
+                       ir.stageStartedAt AS stageStartedAt,
+                       ir.lastProgressAt AS lastProgressAt
                 """,
                 run_id=run_id
             )
@@ -638,9 +656,38 @@ class Neo4jDriver:
                     "pulledAt": record["pulledAt"],
                     "totalCommitsProcessed": record.get("totalCommitsProcessed", 0),
                     "totalSignaturesProcessed": record.get("totalSignaturesProcessed", 0),
-                    "totalMergesProcessed": record.get("totalMergesProcessed", 0)
+                    "totalMergesProcessed": record.get("totalMergesProcessed", 0),
+                    "currentStage": record.get("currentStage"),
+                    "stageStartedAt": record.get("stageStartedAt"),
+                    "lastProgressAt": record.get("lastProgressAt")
                 }
             return None
+    
+    def get_active_ingest_runs(self) -> List[Dict[str, Any]]:
+        """Get all active (non-completed) ingest runs."""
+        with self._driver.session() as session:
+            result = session.run(
+                """
+                MATCH (ir:IngestRun)
+                WHERE ir.status <> 'COMPLETED'
+                RETURN ir.id AS id, ir.status AS status, ir.pulledAt AS pulledAt,
+                       ir.totalCommitsProcessed AS totalCommitsProcessed,
+                       ir.totalSignaturesProcessed AS totalSignaturesProcessed,
+                       ir.totalMergesProcessed AS totalMergesProcessed
+                ORDER BY ir.pulledAt DESC
+                """
+            )
+            runs = []
+            for record in result:
+                runs.append({
+                    "id": record["id"],
+                    "status": record["status"],
+                    "pulledAt": record["pulledAt"],
+                    "totalCommitsProcessed": record.get("totalCommitsProcessed", 0),
+                    "totalSignaturesProcessed": record.get("totalSignaturesProcessed", 0),
+                    "totalMergesProcessed": record.get("totalMergesProcessed", 0)
+                })
+            return runs
 
     def snapshot_refs(self, run_id: str, refs: List[Dict[str, Any]]):
         """

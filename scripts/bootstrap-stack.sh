@@ -101,6 +101,6 @@ cat <<'EOF'
 Services are now running. You can:
   - Visit http://localhost:8080/ (or your public domain) for the frontend.
   - Hit http://localhost:8080/api/graphql for the GraphQL API.
-  - Trigger the initial import via http://localhost:8080/api/process_git_data_to_neo4j/
+  - Trigger the initial import via http://localhost:8080/api/initiate_data_ingest/
 EOF
 

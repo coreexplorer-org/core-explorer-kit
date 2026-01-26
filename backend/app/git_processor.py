@@ -5,6 +5,7 @@ from typing import Iterable, Sequence, List, Dict, Any, Optional, Set
 from datetime import datetime
 import uuid
 import json
+import time
 
 from git import Repo, Commit, TagReference
 import config
@@ -13,6 +14,66 @@ from commit_details import CommitDetails
 from file_change_processor import compute_file_changes, compute_file_changes_for_paths, SENSITIVE_PATHS
 from signature_extractor import extract_commit_signature, extract_tag_signature
 from merge_analyzer import compute_merged_commits
+
+
+class ProgressTracker:
+    """Helper class for tracking progress with timing and ETA estimates."""
+    
+    def __init__(self, total_items: int, stage_name: str, batch_size: int = 100):
+        self.total_items = total_items
+        self.stage_name = stage_name
+        self.batch_size = batch_size
+        self.start_time = time.time()
+        self.last_batch_time = self.start_time
+        self.last_batch_count = 0
+        
+    def format_duration(self, seconds: float) -> str:
+        """Format duration in a human-readable way."""
+        if seconds < 60:
+            return f"{int(seconds)}s"
+        elif seconds < 3600:
+            return f"{int(seconds // 60)}m {int(seconds % 60)}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
+    
+    def get_progress_message(self, current: int, additional_info: str = "") -> str:
+        """Generate a progress message with timing and ETA."""
+        elapsed = time.time() - self.start_time
+        batch_elapsed = time.time() - self.last_batch_time
+        
+        # Calculate rate from last batch
+        items_in_batch = current - self.last_batch_count
+        if items_in_batch > 0 and batch_elapsed > 0:
+            items_per_sec = items_in_batch / batch_elapsed
+            remaining = self.total_items - current
+            if items_per_sec > 0:
+                eta_seconds = remaining / items_per_sec
+                eta_str = f", ETA: {self.format_duration(eta_seconds)}"
+            else:
+                eta_str = ""
+        else:
+            eta_str = ""
+        
+        elapsed_str = self.format_duration(elapsed)
+        progress_pct = (current / self.total_items * 100) if self.total_items > 0 else 0
+        
+        msg = f"[{self.stage_name}] Processed {current}/{self.total_items} ({progress_pct:.1f}%)... elapsed: {elapsed_str}{eta_str}"
+        if additional_info:
+            msg += f" {additional_info}"
+        
+        # Update for next batch
+        self.last_batch_time = time.time()
+        self.last_batch_count = current
+        
+        return msg
+    
+    def get_large_repo_hint(self) -> str:
+        """Get a hint about processing time for large repos."""
+        if self.total_items > 10000:
+            return f"Large repo detected ({self.total_items:,} items); this step may take an hour or more on slower machines."
+        return ""
 
 def merge_parents(db, commit):
     for parent in commit.parents:
@@ -584,11 +645,17 @@ def process_commit_signatures(
     
     if not commit_shas:
         print("No commits without signatures found")
-        return
+        return 0
     
     commits_without_sigs = total_commits - commits_with_sigs
     print(f"Signature processing status: {total_commits} total commits, {checked_commits} already checked (skipped), {commits_with_sigs} have signatures, {len(commit_shas)} need processing")
     print(f"Processing signatures for {len(commit_shas)} commits")
+    
+    # Initialize progress tracker
+    tracker = ProgressTracker(len(commit_shas), "PGP_SIGNATURES", BATCH_SIZE)
+    hint = tracker.get_large_repo_hint()
+    if hint:
+        print(f"Note: {hint} (Signature verification is CPU-intensive)")
     
     # Diagnostic: Test a few commits to see what git actually outputs
     print("Testing signature extraction on sample commits...")
@@ -742,7 +809,8 @@ def process_commit_signatures(
                 
                 # Calculate key reuse ratio (signatures per key)
                 ratio = sig_count / key_count if key_count > 0 else 0
-                print(f"Processed {i}/{len(commit_shas)} commits... (found {total_signed} signed, {total_unsigned} unsigned so far) [DB: {sig_count} signatures, {key_count} keys, {ratio:.1f} sigs/key]")
+                additional_info = f"(found {total_signed} signed, {total_unsigned} unsigned so far) [DB: {sig_count} signatures, {key_count} keys, {ratio:.1f} sigs/key]"
+                print(tracker.get_progress_message(i, additional_info))
                 
                 # Show sample fingerprints on first batch
                 if i == BATCH_SIZE and sample_fingerprints:
@@ -916,10 +984,16 @@ def process_merged_includes(
     
     if not merge_shas:
         print("No merge commits without MERGED_INCLUDES relationships found")
-        return
+        return 0
     
     print(f"MERGED_INCLUDES processing status: {total_merges} total merges, {merges_with_includes} already processed, {len(merge_shas)} need processing")
     print(f"Processing MERGED_INCLUDES for {len(merge_shas)} merge commits")
+    
+    # Initialize progress tracker
+    tracker = ProgressTracker(len(merge_shas), "MERGED_INCLUDES", BATCH_SIZE)
+    hint = tracker.get_large_repo_hint()
+    if hint:
+        print(f"Note: {hint}")
     
     # Process merges and collect data in batches
     merge_rows = []
@@ -956,7 +1030,8 @@ def process_merged_includes(
         if i % BATCH_SIZE == 0:
             if merge_rows:
                 db.batch_create_merged_includes(merge_rows)
-                print(f"Processed {i}/{len(merge_shas)} merges... (created {total_relationships} MERGED_INCLUDES relationships so far)")
+                additional_info = f"(created {total_relationships} MERGED_INCLUDES relationships so far)"
+                print(tracker.get_progress_message(i, additional_info))
                 merge_rows = []  # Clear after saving
     
     # Save remaining data (final batch)
