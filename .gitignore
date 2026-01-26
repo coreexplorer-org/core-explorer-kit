@@ -6,6 +6,9 @@ CE_demo/
 # Environment variables
 .env
 
+# developer UX
+**/.notes/**
+
 # Python
 __pycache__/
 *.py[cod]
@@ -36,3 +39,5 @@ ENV/
 *.swo
 *~
 .DS_Store
+
+
