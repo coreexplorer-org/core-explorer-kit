@@ -9,7 +9,10 @@ as GitPython doesn't directly expose GPG signature data.
 from typing import Optional, Dict, Any
 import subprocess
 import re
+import logging
 from git import Commit, TagReference, Repo
+
+logger = logging.getLogger(__name__)
 
 
 def extract_commit_signature(commit: Commit) -> Optional[Dict[str, Any]]:
@@ -80,13 +83,13 @@ def extract_commit_signature(commit: Commit) -> Optional[Dict[str, Any]]:
         return None
         
     except subprocess.TimeoutExpired:
-        print(f"Timeout extracting signature from commit {commit.hexsha[:8]}")
+        logger.error(f"Timeout extracting signature from commit {commit.hexsha[:8]}")
         return None
     except UnicodeDecodeError as e:
-        print(f"Error extracting signature from commit {commit.hexsha[:8]}: {e}")
+        logger.error(f"Error extracting signature from commit {commit.hexsha[:8]}: {e}")
         return None
     except Exception as e:
-        print(f"Error extracting signature from commit {commit.hexsha[:8]}: {e}")
+        logger.error(f"Error extracting signature from commit {commit.hexsha[:8]}: {e}")
         return None
 
 
@@ -151,10 +154,10 @@ def extract_tag_signature(tag_ref: TagReference) -> Optional[Dict[str, Any]]:
         return None
         
     except subprocess.TimeoutExpired:
-        print(f"Timeout extracting signature from tag {tag_ref.name}")
+        logger.error(f"Timeout extracting signature from tag {tag_ref.name}")
         return None
     except Exception as e:
-        print(f"Error extracting signature from tag {tag_ref.name}: {e}")
+        logger.error(f"Error extracting signature from tag {tag_ref.name}: {e}")
         return None
 
 

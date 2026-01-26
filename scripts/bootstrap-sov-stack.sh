@@ -126,7 +126,7 @@ Web:
 API:
   - http://localhost:8080/api/graphql
 Import:
-  - http://localhost:8080/api/process_git_data_to_neo4j/
+  - http://localhost:8080/api/initiate_data_ingest/
 
 Neo4j Browser (recommended secure access):
   - Keep Neo4j bound to 127.0.0.1 on the host.

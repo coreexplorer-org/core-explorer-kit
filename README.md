@@ -643,15 +643,15 @@ Navigate to the processing endpoint in your browser or use curl:
 
 ```bash
 # Via nginx (recommended)
-curl http://localhost:8080/api/process_git_data_to_neo4j/
+curl http://localhost:8080/api/initiate_data_ingest/
 
 # Or directly to backend
-curl http://localhost:5000/api/process_git_data_to_neo4j/
+curl http://localhost:5000/api/initiate_data_ingest/
 ```
 
 Or open in your browser:
 ```
-http://localhost:8080/api/process_git_data_to_neo4j/
+http://localhost:8080/api/initiate_data_ingest/
 ```
 
 **Note:** The processing runs asynchronously in a background thread and returns immediately with a Run ID. You can monitor progress using the status endpoint.
@@ -784,7 +784,7 @@ Once the initial import is complete:
 1. **Explore the GraphQL API**: Visit `http://localhost:8080/api/graphql` for the GraphiQL interface
 2. **Query repository data**: Use GraphQL queries to explore identities, commits, and relationships
 3. **Access the frontend**: Visit `http://localhost:8080/` to see the web interface
-4. **Re-run processing**: Subsequent calls to `/api/process_git_data_to_neo4j/` will process additional file paths (if configured)
+4. **Re-run processing**: Subsequent calls to `/api/initiate_data_ingest/` will process additional file paths (if configured)
 
 The system is now ready to analyze your repository's development history and peer review patterns!
 

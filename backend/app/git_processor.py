@@ -5,6 +5,8 @@ from typing import Iterable, Sequence, List, Dict, Any, Optional, Set
 from datetime import datetime
 import uuid
 import json
+import time
+import logging
 
 from git import Repo, Commit, TagReference
 import config
@@ -13,6 +15,68 @@ from commit_details import CommitDetails
 from file_change_processor import compute_file_changes, compute_file_changes_for_paths, SENSITIVE_PATHS
 from signature_extractor import extract_commit_signature, extract_tag_signature
 from merge_analyzer import compute_merged_commits
+
+logger = logging.getLogger(__name__)
+
+
+class ProgressTracker:
+    """Helper class for tracking progress with timing and ETA estimates."""
+    
+    def __init__(self, total_items: int, stage_name: str, batch_size: int = 100):
+        self.total_items = total_items
+        self.stage_name = stage_name
+        self.batch_size = batch_size
+        self.start_time = time.time()
+        self.last_batch_time = self.start_time
+        self.last_batch_count = 0
+        
+    def format_duration(self, seconds: float) -> str:
+        """Format duration in a human-readable way."""
+        if seconds < 60:
+            return f"{int(seconds)}s"
+        elif seconds < 3600:
+            return f"{int(seconds // 60)}m {int(seconds % 60)}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
+    
+    def get_progress_message(self, current: int, additional_info: str = "") -> str:
+        """Generate a progress message with timing and ETA."""
+        elapsed = time.time() - self.start_time
+        batch_elapsed = time.time() - self.last_batch_time
+        
+        # Calculate rate from last batch
+        items_in_batch = current - self.last_batch_count
+        if items_in_batch > 0 and batch_elapsed > 0:
+            items_per_sec = items_in_batch / batch_elapsed
+            remaining = self.total_items - current
+            if items_per_sec > 0:
+                eta_seconds = remaining / items_per_sec
+                eta_str = f", ETA: {self.format_duration(eta_seconds)}"
+            else:
+                eta_str = ""
+        else:
+            eta_str = ""
+        
+        elapsed_str = self.format_duration(elapsed)
+        progress_pct = (current / self.total_items * 100) if self.total_items > 0 else 0
+        
+        msg = f"[{self.stage_name}] Processed {current}/{self.total_items} ({progress_pct:.1f}%)... elapsed: {elapsed_str}{eta_str}"
+        if additional_info:
+            msg += f" {additional_info}"
+        
+        # Update for next batch
+        self.last_batch_time = time.time()
+        self.last_batch_count = current
+        
+        return msg
+    
+    def get_large_repo_hint(self) -> str:
+        """Get a hint about processing time for large repos."""
+        if self.total_items > 10000:
+            return f"Large repo detected ({self.total_items:,} items); this step may take an hour or more on slower machines."
+        return ""
 
 def merge_parents(db, commit):
     for parent in commit.parents:
@@ -59,17 +123,17 @@ def process_git_data(
     try:
         if use_new_schema:
             # Create constraints first
-            print("Creating schema constraints...")
+            logger.info("Creating schema constraints...")
             db.create_constraints()
             
             # Create or use existing ingest run
             run_id = run_id or str(uuid.uuid4())
             pulled_at = datetime.now()
             db.create_ingest_run(run_id, pulled_at)
-            print(f"IngestRun: {run_id}")
+            logger.info(f"IngestRun: {run_id}")
             
             # 1. PROCESS COMMITS (BACKBONE)
-            print("Processing commits...")
+            logger.info("Processing commits...")
             commit_count = process_commits_new_schema(repo, db, commit_limit=commit_limit)
             
             # Mark backbone as complete
@@ -78,17 +142,17 @@ def process_git_data(
             # --- STAGE GATE ---
             run_info = db.get_ingest_run_status(run_id)
             if not run_info or run_info.get('status') != 'COMMITS_COMPLETE':
-                print(f"Commit backbone verification failed for {run_id}. Skipping advanced analysis.")
+                logger.error(f"Commit backbone verification failed for {run_id}. Skipping advanced analysis.")
                 return
             
-            print("Commit backbone verified. Proceeding with advanced enrichment.")
+            logger.info("Commit backbone verified. Proceeding with advanced enrichment.")
             
             # 2. ENRICHMENT STAGES
             # Mark as enriching to distinguish from backbone completion
             db.update_ingest_run_status(run_id, 'ENRICHING')
             
             # Process refs and tags
-            print("Processing refs and tags...")
+            logger.info("Processing refs and tags...")
             process_refs_and_tags(repo, db, run_id)
             
             # Process file changes for sensitive paths
@@ -98,42 +162,42 @@ def process_git_data(
                 "src/rpc/mempool.cpp",
             )
             active_paths = new_schema_default_paths if folder_paths is None else folder_paths
-            print(f"Processing file changes for paths: {active_paths}")
+            logger.info(f"Processing file changes for paths: {active_paths}")
             process_file_changes_for_paths(repo, db, active_paths, commit_limit=commit_limit)
             
             # Create Git-native events
-            print("Creating Git-native events...")
+            logger.info("Creating Git-native events...")
             create_git_events(repo, db, commit_limit=commit_limit)
             
             # Process PGP signatures for commits
-            print("Processing PGP signatures for commits...")
+            logger.info("Processing PGP signatures for commits...")
             sig_count = process_commit_signatures(repo, db, commit_limit=commit_limit)
             db.update_ingest_run_status(run_id, 'ENRICHING', totalSignaturesProcessed=sig_count)
             
             # Process PGP signatures for tags
-            print("Processing PGP signatures for tags...")
+            logger.info("Processing PGP signatures for tags...")
             process_tag_signatures(repo, db)
             
             # Process MERGED_INCLUDES for merge commits
-            print("Computing MERGED_INCLUDES relationships...")
+            logger.info("Computing MERGED_INCLUDES relationships...")
             merge_count = process_merged_includes(repo, db, merge_limit=None)
             db.update_ingest_run_status(run_id, 'ENRICHING', totalMergesProcessed=merge_count)
             
             # Mark run as fully complete
             db.update_ingest_run_status(run_id, 'COMPLETED')
-            print(f"IngestRun {run_id} successfully completed.")
+            logger.info(f"IngestRun {run_id} successfully completed.")
         else:
             # Legacy import path
             status_flag = db.merge_import_status()
-            print("Import Process Status Result:", status_flag)
+            logger.info(f"Import Process Status Result: {status_flag}")
 
             if not status_flag['git_import_complete']:
                 commits = find_commits_in_repo(repo, limit=commit_limit)
-                print("Performing initial data import...")
+                logger.info("Performing initial data import...")
                 initial_process_commits_into_db(db, commits)
                 db.merge_get_import_status_node()
             else:
-                print("Skipping initial data import.")
+                logger.info("Skipping initial data import.")
                 default_paths: Sequence[str] = (
                     "src/policy",
                     "src/consensus",
@@ -214,7 +278,7 @@ def initial_process_commits_into_db(db: Neo4jDriver, commits):
     """Legacy method for processing commits one at a time."""
     for commit in commits:
         process_commit(db, commit)
-    print(f"Processed {len(commits)} commits into Neo4j.")
+    logger.info(f"Processed {len(commits)} commits into Neo4j.")
 
 
 def process_commits_new_schema(repo: Repo, db: Neo4jDriver, commit_limit: Optional[int] = None) -> int:
@@ -229,7 +293,7 @@ def process_commits_new_schema(repo: Repo, db: Neo4jDriver, commit_limit: Option
         result = session.run("MATCH (c:Commit) RETURN c.commit_hash AS sha")
         existing_shas = {record["sha"] for record in result}
     
-    print(f"Found {len(existing_shas)} existing commits in database")
+    logger.info(f"Found {len(existing_shas)} existing commits in database")
     
     # Find new commits (walk from refs)
     new_commits = []
@@ -253,10 +317,10 @@ def process_commits_new_schema(repo: Repo, db: Neo4jDriver, commit_limit: Option
                     seen_shas.add(commit.hexsha)
                     new_commits.append(commit)
         except Exception as e:
-            print(f"Error processing ref {ref}: {e}")
+            logger.error(f"Error processing ref {ref}: {e}")
     
     if not new_commits:
-        print("No new commits found from refs, checking all commits...")
+        logger.info("No new commits found from refs, checking all commits...")
         for commit in repo.iter_commits():
             if commit.hexsha not in existing_shas:
                 new_commits.append(commit)
@@ -266,10 +330,10 @@ def process_commits_new_schema(repo: Repo, db: Neo4jDriver, commit_limit: Option
     if commit_limit:
         new_commits = new_commits[:commit_limit]
     
-    print(f"Found {len(new_commits)} new commits to process")
+    logger.info(f"Found {len(new_commits)} new commits to process")
     
     if not new_commits:
-        print("No new commits to import")
+        logger.info("No new commits to import")
         return 0
     
     # Prepare batch rows
@@ -302,7 +366,7 @@ def process_commits_new_schema(repo: Repo, db: Neo4jDriver, commit_limit: Option
     
     # Batch upsert
     db.batch_upsert_commits(commit_rows)
-    print(f"Successfully imported {len(commit_rows)} commits")
+    logger.info(f"Successfully imported {len(commit_rows)} commits")
     return len(commit_rows)
 
 
@@ -333,15 +397,16 @@ def process_file_changes_for_paths(
                     commits_to_process.append(commit)
                 if commit_limit and len(commits_to_process) >= commit_limit:
                     break
+            # Break out of outer loop if we've reached the limit
             if commit_limit and len(commits_to_process) >= commit_limit:
                 break
         except Exception as e:
-            print(f"Error processing path {path}: {e}")
+            logger.error(f"Error processing path {path}: {e}")
     
     if commit_limit:
         commits_to_process = commits_to_process[:commit_limit]
     
-    print(f"Processing file changes for {len(commits_to_process)} commits")
+    logger.info(f"Processing file changes for {len(commits_to_process)} commits")
     
     # Prepare change rows
     change_rows = []
@@ -357,9 +422,9 @@ def process_file_changes_for_paths(
     
     if change_rows:
         db.batch_upsert_file_changes(change_rows)
-        print(f"Successfully imported file changes for {len(change_rows)} commits")
+        logger.info(f"Successfully imported file changes for {len(change_rows)} commits")
     else:
-        print("No file changes to import")
+        logger.info("No file changes to import")
 
 
 def process_refs_and_tags(repo: Repo, db: Neo4jDriver, run_id: str):
@@ -386,7 +451,7 @@ def process_refs_and_tags(repo: Repo, db: Neo4jDriver, run_id: str):
                     "tipSha": tip_sha,
                 })
             except Exception as e:
-                print(f"Error processing branch {ref.name}: {e}")
+                logger.error(f"Error processing branch {ref.name}: {e}")
     
     # Process remote branches
     for remote in repo.remotes:
@@ -402,7 +467,7 @@ def process_refs_and_tags(repo: Repo, db: Neo4jDriver, run_id: str):
                         "tipSha": tip_sha,
                     })
                 except Exception as e:
-                    print(f"Error processing remote branch {ref.name}: {e}")
+                    logger.error(f"Error processing remote branch {ref.name}: {e}")
     
     # Process tags
     for tag_ref in repo.tags:
@@ -439,12 +504,12 @@ def process_refs_and_tags(repo: Repo, db: Neo4jDriver, run_id: str):
                     "tipSha": tip_sha,
                 })
         except Exception as e:
-            print(f"Error processing tag {tag_ref.name}: {e}")
+            logger.error(f"Error processing tag {tag_ref.name}: {e}")
     
     # Snapshot refs
     if refs_data:
         db.snapshot_refs(run_id, refs_data)
-        print(f"Successfully snapshotted {len(refs_data)} refs")
+        logger.info(f"Successfully snapshotted {len(refs_data)} refs")
 
 
 def create_git_events(repo: Repo, db: Neo4jDriver, commit_limit: Optional[int] = None):
@@ -522,13 +587,13 @@ def create_git_events(repo: Repo, db: Neo4jDriver, commit_limit: Optional[int] =
                     db.batch_create_events(batch_events)
                     batch_events = []
             except Exception as e:
-                print(f"Error preparing event for commit {record.get('sha', 'unknown')}: {e}")
+                logger.error(f"Error preparing event for commit {record.get('sha', 'unknown')}: {e}")
         
         # Insert remaining events
         if batch_events:
             db.batch_create_events(batch_events)
         
-        print(f"Created {event_count} Git-native events")
+        logger.info(f"Created {event_count} Git-native events")
 
 
 def process_commit_signatures(
@@ -583,15 +648,21 @@ def process_commit_signatures(
         commit_shas = [record["sha"] for record in result]
     
     if not commit_shas:
-        print("No commits without signatures found")
-        return
+        logger.info("No commits without signatures found")
+        return 0
     
     commits_without_sigs = total_commits - commits_with_sigs
-    print(f"Signature processing status: {total_commits} total commits, {checked_commits} already checked (skipped), {commits_with_sigs} have signatures, {len(commit_shas)} need processing")
-    print(f"Processing signatures for {len(commit_shas)} commits")
+    logger.info(f"Signature processing status: {total_commits} total commits, {checked_commits} already checked (skipped), {commits_with_sigs} have signatures, {len(commit_shas)} need processing")
+    logger.info(f"Processing signatures for {len(commit_shas)} commits")
+    
+    # Initialize progress tracker
+    tracker = ProgressTracker(len(commit_shas), "PGP_SIGNATURES", BATCH_SIZE)
+    hint = tracker.get_large_repo_hint()
+    if hint:
+        logger.info(f"Note: {hint} (Signature verification is CPU-intensive)")
     
     # Diagnostic: Test a few commits to see what git actually outputs
-    print("Testing signature extraction on sample commits...")
+    logger.debug("Testing signature extraction on sample commits...")
     sample_commits = commit_shas[:10]
     for test_sha in sample_commits:
         try:
@@ -610,20 +681,20 @@ def process_commit_signatures(
             
             extracted = extract_commit_signature(test_commit)
             if extracted and extracted.get('fingerprint'):
-                print(f"  ✓ {test_sha[:8]}: Found signature {extracted['fingerprint'][:16]}...")
+                logger.debug(f"  ✓ {test_sha[:8]}: Found signature {extracted['fingerprint'][:16]}...")
             elif has_sig_markers:
-                print(f"  ⚠ {test_sha[:8]}: Git output has signature markers but extraction failed")
+                logger.debug(f"  ⚠ {test_sha[:8]}: Git output has signature markers but extraction failed")
                 # Show a snippet
                 sig_lines = [l for l in combined_output.split('\n') if any(m in l.lower() for m in ['gpg', 'signature', 'fingerprint'])][:3]
                 if sig_lines:
-                    print(f"    Sample: {sig_lines[0][:80]}")
+                    logger.debug(f"    Sample: {sig_lines[0][:80]}")
             else:
                 # Only show first 2 to avoid spam
                 if test_sha == sample_commits[0]:
-                    print(f"  - {test_sha[:8]}: No signature indicators in git output")
+                    logger.debug(f"  - {test_sha[:8]}: No signature indicators in git output")
         except Exception as e:
             if test_sha == sample_commits[0]:
-                print(f"  ✗ {test_sha[:8]}: Error - {e}")
+                logger.debug(f"  ✗ {test_sha[:8]}: Error - {e}")
     
     # Check current database state
     with db._driver.session() as session:
@@ -640,7 +711,7 @@ def process_commit_signatures(
         tag_sigs_record = session.run("MATCH (t:TagObject)-[:HAS_SIGNATURE]->() RETURN count(DISTINCT t) AS count").single()
         tag_sigs = tag_sigs_record["count"] if tag_sigs_record else 0
         
-        print(f"Database state: {existing_sigs} signatures ({commit_sigs} commits, {tag_sigs} tags), {existing_keys} PGP keys")
+        logger.debug(f"Database state: {existing_sigs} signatures ({commit_sigs} commits, {tag_sigs} tags), {existing_keys} PGP keys")
     
     # Extract signatures and collect data in batches
     key_rows = []
@@ -676,7 +747,7 @@ def process_commit_signatures(
                 if len(fingerprint) != 40 or not all(c in '0123456789ABCDEF' for c in fingerprint):
                     # Skip invalid fingerprints (likely false positives from parsing)
                     if i <= 10:  # Only log first few
-                        print(f"  Warning: Invalid fingerprint format for commit {sha[:8]}: {fingerprint[:20]}...")
+                        logger.warning(f"  Warning: Invalid fingerprint format for commit {sha[:8]}: {fingerprint[:20]}...")
                     total_unsigned += 1
                     continue
                 
@@ -705,7 +776,7 @@ def process_commit_signatures(
             if len(sample_errors) < 5:
                 sample_errors.append(f"{sha[:8]}: {str(e)}")
             if error_count <= 10 or error_count % 1000 == 0:
-                print(f"Error processing signature for commit {sha[:8]}: {e}")
+                logger.error(f"Error processing signature for commit {sha[:8]}: {e}")
             total_unsigned += 1
             # Still mark as processed even if there was an error
             processed_commits.append(sha)
@@ -742,25 +813,26 @@ def process_commit_signatures(
                 
                 # Calculate key reuse ratio (signatures per key)
                 ratio = sig_count / key_count if key_count > 0 else 0
-                print(f"Processed {i}/{len(commit_shas)} commits... (found {total_signed} signed, {total_unsigned} unsigned so far) [DB: {sig_count} signatures, {key_count} keys, {ratio:.1f} sigs/key]")
+                additional_info = f"(found {total_signed} signed, {total_unsigned} unsigned so far) [DB: {sig_count} signatures, {key_count} keys, {ratio:.1f} sigs/key]"
+                logger.info(tracker.get_progress_message(i, additional_info))
                 
                 # Show sample fingerprints on first batch
                 if i == BATCH_SIZE and sample_fingerprints:
-                    print(f"  Sample fingerprints found: {', '.join([f'{sha}:{fp[:16]}...' for sha, fp in sample_fingerprints])}")
+                    logger.debug(f"  Sample fingerprints found: {', '.join([f'{sha}:{fp[:16]}...' for sha, fp in sample_fingerprints])}")
     
     # Save remaining data (final batch)
     if key_rows:
         db.batch_upsert_pgp_keys(key_rows)
-        print(f"Upserted {len(key_rows)} PGP keys")
+        logger.info(f"Upserted {len(key_rows)} PGP keys")
     
     if signature_rows:
         db.batch_create_signatures(signature_rows)
-        print(f"Created {len(signature_rows)} signature relationships")
+        logger.info(f"Created {len(signature_rows)} signature relationships")
     
     # Mark all remaining processed commits as checked
     if processed_commits:
         db.batch_mark_commits_checked_for_signatures(processed_commits)
-        print(f"Marked {len(processed_commits)} commits as checked for signatures")
+        logger.info(f"Marked {len(processed_commits)} commits as checked for signatures")
     
     # Verify final database state
     with db._driver.session() as session:
@@ -780,12 +852,12 @@ def process_commit_signatures(
         commits_with_sigs = commit_sig_count_record["count"] if commit_sig_count_record else 0
     
     # Print final summary
-    print(f"Completed: processed {len(commit_shas)} commits, found {total_signed} signed, {total_unsigned} unsigned")
-    print(f"Database state: {total_sigs_in_db} signature relationships, {total_keys_in_db} PGP keys, {commits_with_sigs} commits with signatures")
+    logger.info(f"Completed: processed {len(commit_shas)} commits, found {total_signed} signed, {total_unsigned} unsigned")
+    logger.info(f"Database state: {total_sigs_in_db} signature relationships, {total_keys_in_db} PGP keys, {commits_with_sigs} commits with signatures")
     if error_count > 0:
-        print(f"Encountered {error_count} errors during processing")
+        logger.warning(f"Encountered {error_count} errors during processing")
         if sample_errors:
-            print(f"Sample errors: {', '.join(sample_errors)}")
+            logger.debug(f"Sample errors: {', '.join(sample_errors)}")
     
     return total_signed
 
@@ -812,10 +884,10 @@ def process_tag_signatures(repo: Repo, db: Neo4jDriver):
         tag_names = [record["name"] for record in result]
     
     if not tag_names:
-        print("No tags without signatures found")
+        logger.info("No tags without signatures found")
         return
     
-    print(f"Processing signatures for {len(tag_names)} tags")
+    logger.info(f"Processing signatures for {len(tag_names)} tags")
     
     # Extract signatures and collect data
     key_rows = []
@@ -848,22 +920,22 @@ def process_tag_signatures(repo: Repo, db: Neo4jDriver):
                     'method': sig_data.get('method', 'gpg')
                 })
         except Exception as e:
-            print(f"Error processing signature for tag {tag_name}: {e}")
+            logger.error(f"Error processing signature for tag {tag_name}: {e}")
             continue
     
     # Batch upsert PGP keys
     if key_rows:
         db.batch_upsert_pgp_keys(key_rows)
-        print(f"Upserted {len(key_rows)} PGP keys")
+        logger.info(f"Upserted {len(key_rows)} PGP keys")
     
     # Batch create signature relationships
     if signature_rows:
         db.batch_create_signatures(signature_rows)
-        print(f"Created {len(signature_rows)} signature relationships")
+        logger.info(f"Created {len(signature_rows)} signature relationships")
     
     unsigned_count = len(tag_names) - len(signature_rows)
     if unsigned_count > 0:
-        print(f"Found {unsigned_count} unsigned tags")
+        logger.info(f"Found {unsigned_count} unsigned tags")
 
 
 def process_merged_includes(
@@ -915,11 +987,17 @@ def process_merged_includes(
         merge_shas = [record["sha"] for record in result]
     
     if not merge_shas:
-        print("No merge commits without MERGED_INCLUDES relationships found")
-        return
+        logger.info("No merge commits without MERGED_INCLUDES relationships found")
+        return 0
     
-    print(f"MERGED_INCLUDES processing status: {total_merges} total merges, {merges_with_includes} already processed, {len(merge_shas)} need processing")
-    print(f"Processing MERGED_INCLUDES for {len(merge_shas)} merge commits")
+    logger.info(f"MERGED_INCLUDES processing status: {total_merges} total merges, {merges_with_includes} already processed, {len(merge_shas)} need processing")
+    logger.info(f"Processing MERGED_INCLUDES for {len(merge_shas)} merge commits")
+    
+    # Initialize progress tracker
+    tracker = ProgressTracker(len(merge_shas), "MERGED_INCLUDES", BATCH_SIZE)
+    hint = tracker.get_large_repo_hint()
+    if hint:
+        logger.info(f"Note: {hint}")
     
     # Process merges and collect data in batches
     merge_rows = []
@@ -949,20 +1027,21 @@ def process_merged_includes(
         except Exception as e:
             error_count += 1
             if error_count <= 10 or error_count % 100 == 0:
-                print(f"Error processing merge {merge_sha[:8]}: {e}")
+                logger.error(f"Error processing merge {merge_sha[:8]}: {e}")
             continue
         
         # Save batch every BATCH_SIZE merges
         if i % BATCH_SIZE == 0:
             if merge_rows:
                 db.batch_create_merged_includes(merge_rows)
-                print(f"Processed {i}/{len(merge_shas)} merges... (created {total_relationships} MERGED_INCLUDES relationships so far)")
+                additional_info = f"(created {total_relationships} MERGED_INCLUDES relationships so far)"
+                logger.info(tracker.get_progress_message(i, additional_info))
                 merge_rows = []  # Clear after saving
     
     # Save remaining data (final batch)
     if merge_rows:
         db.batch_create_merged_includes(merge_rows)
-        print(f"Created {len(merge_rows)} merge relationships in final batch")
+        logger.info(f"Created {len(merge_rows)} merge relationships in final batch")
     
     # Verify final database state
     with db._driver.session() as session:
@@ -978,10 +1057,10 @@ def process_merged_includes(
         merges_with_includes_record = merges_with_includes_result.single()
         merges_with_includes_final = merges_with_includes_record["count"] if merges_with_includes_record else 0
     
-    print(f"Completed: processed {total_processed} merges, created {total_relationships} MERGED_INCLUDES relationships")
-    print(f"Database state: {total_includes_in_db} total MERGED_INCLUDES relationships, {merges_with_includes_final} merges with relationships")
+    logger.info(f"Completed: processed {total_processed} merges, created {total_relationships} MERGED_INCLUDES relationships")
+    logger.info(f"Database state: {total_includes_in_db} total MERGED_INCLUDES relationships, {merges_with_includes_final} merges with relationships")
     if error_count > 0:
-        print(f"Encountered {error_count} errors during processing")
+        logger.warning(f"Encountered {error_count} errors during processing")
     
     return total_relationships
 

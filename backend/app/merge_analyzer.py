@@ -5,7 +5,10 @@ This module computes which commits are introduced by a merge commit,
 i.e., commits reachable from the second parent but not from the first parent.
 """
 from typing import List, Set
+import logging
 from git import Commit, Repo
+
+logger = logging.getLogger(__name__)
 
 
 def compute_merged_commits(merge_commit: Commit, repo: Repo) -> List[str]:
@@ -62,5 +65,5 @@ def compute_merged_commits(merge_commit: Commit, repo: Repo) -> List[str]:
         
     except Exception as e:
         # Handle errors gracefully (missing commits, corrupted history, etc.)
-        print(f"Error computing merged commits for {merge_commit.hexsha[:8]}: {e}")
+        logger.error(f"Error computing merged commits for {merge_commit.hexsha[:8]}: {e}")
         return []
