@@ -418,6 +418,33 @@ def ingest_status(run_id):
         started_str = started_at.strftime("%Y-%m-%d %H:%M:%S") if started_at else "Unknown"
         last_update_str = last_progress.strftime("%Y-%m-%d %H:%M:%S") if last_progress else "Unknown"
         
+        # Query total counts from database
+        with db._driver.session() as session:
+            # Total commits
+            total_commits_result = session.run("MATCH (c:Commit) RETURN count(c) AS count")
+            total_commits_record = total_commits_result.single()
+            total_commits = total_commits_record.get("count", 0) if total_commits_record else 0
+            
+            # Total signatures (commit signatures)
+            total_sigs_result = session.run("MATCH (c:Commit)-[:HAS_SIGNATURE]->(:PGPKey) RETURN count(DISTINCT c) AS count")
+            total_sigs_record = total_sigs_result.single()
+            total_sigs = total_sigs_record.get("count", 0) if total_sigs_record else 0
+            
+            # Total merge relationships
+            total_merges_result = session.run("MATCH ()-[r:MERGED_INCLUDES]->() RETURN count(r) AS count")
+            total_merges_record = total_merges_result.single()
+            total_merges = total_merges_record.get("count", 0) if total_merges_record else 0
+            
+            # Total file changes
+            total_file_changes_result = session.run("MATCH (fc:FileChange) RETURN count(fc) AS count")
+            total_file_changes_record = total_file_changes_result.single()
+            total_file_changes = total_file_changes_record.get("count", 0) if total_file_changes_record else 0
+            
+            # Commits with file changes
+            commits_with_changes_result = session.run("MATCH (c:Commit)-[:HAS_CHANGE]->(:FileChange) RETURN count(DISTINCT c) AS count")
+            commits_with_changes_record = commits_with_changes_result.single()
+            commits_with_changes = commits_with_changes_record.get("count", 0) if commits_with_changes_record else 0
+        
         # Get Cypher suggestions based on stage
         cypher_suggestions = get_cypher_suggestions(status_info.get('status', ''), status_info)
         
@@ -493,6 +520,19 @@ def ingest_status(run_id):
             color: #333;
             margin-top: 5px;
         }}
+        .stat-subvalue {{
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+            font-weight: normal;
+        }}
+        .stat-section-title {{
+            font-size: 0.75em;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }}
         .cypher-section {{
             margin-top: 30px;
             padding: 15px;
@@ -549,14 +589,43 @@ def ingest_status(run_id):
             <div class="stat-box">
                 <div class="stat-label">Commits Processed</div>
                 <div class="stat-value">{(status_info.get('totalCommitsProcessed') or 0):,}</div>
+                <div class="stat-subvalue">Total in DB: {total_commits:,}</div>
             </div>
             <div class="stat-box">
                 <div class="stat-label">Signatures Verified</div>
                 <div class="stat-value">{(status_info.get('totalSignaturesProcessed') or 0):,}</div>
+                <div class="stat-subvalue">Total in DB: {total_sigs:,}</div>
             </div>
             <div class="stat-box">
                 <div class="stat-label">Merge Relationships</div>
                 <div class="stat-value">{(status_info.get('totalMergesProcessed') or 0):,}</div>
+                <div class="stat-subvalue">Total in DB: {total_merges:,}</div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 4px; border-left: 4px solid #6c757d;">
+            <div class="stat-section-title">Database Overview</div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 10px;">
+                <div>
+                    <div style="font-size: 0.85em; color: #666;">Total Commits</div>
+                    <div style="font-size: 1.2em; font-weight: bold; color: #333;">{total_commits:,}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.85em; color: #666;">Commits with Signatures</div>
+                    <div style="font-size: 1.2em; font-weight: bold; color: #333;">{total_sigs:,}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.85em; color: #666;">Merge Relationships</div>
+                    <div style="font-size: 1.2em; font-weight: bold; color: #333;">{total_merges:,}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.85em; color: #666;">File Changes</div>
+                    <div style="font-size: 1.2em; font-weight: bold; color: #333;">{total_file_changes:,}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.85em; color: #666;">Commits with File Changes</div>
+                    <div style="font-size: 1.2em; font-weight: bold; color: #333;">{commits_with_changes:,}</div>
+                </div>
             </div>
         </div>
         

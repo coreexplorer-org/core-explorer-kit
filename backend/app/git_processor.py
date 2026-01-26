@@ -156,12 +156,8 @@ def process_git_data(
             process_refs_and_tags(repo, db, run_id)
             
             # Process file changes for sensitive paths
-            new_schema_default_paths: Sequence[str] = (
-                "src/policy",
-                "src/consensus",
-                "src/rpc/mempool.cpp",
-            )
-            active_paths = new_schema_default_paths if folder_paths is None else folder_paths
+            # Use SENSITIVE_PATHS from file_change_processor as the default
+            active_paths = list(SENSITIVE_PATHS) if folder_paths is None else folder_paths
             logger.info(f"Processing file changes for paths: {active_paths}")
             process_file_changes_for_paths(repo, db, active_paths, commit_limit=commit_limit)
             
@@ -198,12 +194,8 @@ def process_git_data(
                 db.merge_get_import_status_node()
             else:
                 logger.info("Skipping initial data import.")
-                default_paths: Sequence[str] = (
-                    "src/policy",
-                    "src/consensus",
-                    "src/rpc/mempool.cpp",
-                )
-                active_paths = default_paths if folder_paths is None else folder_paths
+                # Use SENSITIVE_PATHS from file_change_processor as the default
+                active_paths = list(SENSITIVE_PATHS) if folder_paths is None else folder_paths
                 for path in active_paths:
                     process_path_into_db(repo, db, path)
     finally:
