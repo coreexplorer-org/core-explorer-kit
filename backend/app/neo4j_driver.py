@@ -118,6 +118,27 @@ class Neo4jDriver:
             result = session.run(query)
             return [record.data() for record in result]
 
+    def get_all_identities(self):
+        """Get all Identity nodes (replaces get_all_actors)."""
+        with self.driver.session() as session:
+            query = "MATCH (i:Identity) RETURN i.name AS name, i.email AS email, i.source AS source"
+            result = session.run(query)
+            return [record.data() for record in result]
+
+    def get_all_identity_emails(self, limit: Optional[int] = None) -> List[str]:
+        """Get all identity emails from Identity nodes."""
+        with self.driver.session() as session:
+            query = """
+            MATCH (i:Identity)
+            WHERE i.source = 'git'
+            RETURN DISTINCT i.email as email
+            ORDER BY i.email
+            """
+            if limit:
+                query += f" LIMIT {limit}"
+            result = session.run(query)
+            emails = [record["email"] for record in result]
+            return emails
 
     def get_actor_with_commits(self, email: str):
         with self.driver.session() as session:
@@ -138,6 +159,32 @@ class Neo4jDriver:
             return {
                 "name": record["name"],
                 "email": record["email"],
+                "authored_commits": record["authored_commits"],
+                "committed_commits": record["committed_commits"]
+            }
+
+    def get_identity_with_commits(self, email: str, source: str = "git"):
+        """Get identity with commits (replaces get_actor_with_commits)."""
+        with self.driver.session() as session:
+            query = """
+                MATCH (i:Identity {email: $email, source: $source})
+                OPTIONAL MATCH (i)-[:AUTHORED]->(authored:Commit)
+                OPTIONAL MATCH (i)-[:COMMITTED]->(committed:Commit)
+                RETURN 
+                    i.name AS name,
+                    i.email AS email,
+                    i.source AS source,
+                    collect(DISTINCT {commit_hash: authored.commit_hash, message: authored.message}) AS authored_commits,
+                    collect(DISTINCT {commit_hash: committed.commit_hash, message: committed.message}) AS committed_commits
+            """
+            result = session.run(query, email=email, source=source)
+            record = result.single()
+            if not record:
+                return None
+            return {
+                "name": record["name"],
+                "email": record["email"],
+                "source": record.get("source", "git"),
                 "authored_commits": record["authored_commits"],
                 "committed_commits": record["committed_commits"]
             }
@@ -207,10 +254,16 @@ class Neo4jDriver:
 
     def get_all_github_repositories(self):
         with self.driver.session() as session:
+            # Check if GithubRepository label exists first to avoid warnings
+            label_check = session.run("CALL db.labels() YIELD label RETURN label")
+            labels = [record["label"] for record in label_check]
+            if "GithubRepository" not in labels:
+                return []
+            
             result = session.run(
                 """
                 MATCH (r:GithubRepository)
-                RETURN r.name AS name, r.url AS url, r.description AS description
+                RETURN r.name AS name, r.url AS url, COALESCE(r.description, "") AS description
                 """
             )
             return [record.data() for record in result]
@@ -239,10 +292,18 @@ class Neo4jDriver:
 
     def get_github_repository_by_url(self, url: str):
         with self.driver.session() as session:
+            # Check if GithubRepository label exists first to avoid warnings
+            label_check = session.run("CALL db.labels() YIELD label RETURN label")
+            labels = [record["label"] for record in label_check]
+            if "GithubRepository" not in labels:
+                return None
+            
             result = session.run(
                 """
-                MATCH (r:GithubRepository {url: $url})
-                RETURN r.name AS name, r.url AS url, r.description AS description
+                MATCH (r:GithubRepository)
+                WHERE r.url = $url
+                RETURN r.name AS name, r.url AS url, COALESCE(r.description, "") AS description
+                LIMIT 1
                 """,
                 url=url
             )
@@ -1004,3 +1065,720 @@ class Neo4jDriver:
         MERGE (merge)-[:MERGED_INCLUDES]->(included)
         """
         tx.run(query, rows=rows)
+
+    def get_identity_stats(self, email: str, source: str = "git") -> Optional[Dict[str, Any]]:
+        """Get statistics for an identity including signed/unsigned commits."""
+        with self.driver.session() as session:
+            # First get commit-level stats
+            query = """
+            MATCH (i:Identity {email: $email, source: $source})-[r:AUTHORED|COMMITTED]->(c:Commit)
+            OPTIONAL MATCH (c)-[:HAS_SIGNATURE]->(pgp:PGPKey)
+            OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+            WHERE e.type = 'commit_authored' AND e.source = 'git'
+            WITH DISTINCT c, 
+                 CASE WHEN pgp IS NOT NULL THEN 1 ELSE 0 END as isSigned,
+                 COALESCE(e.ts, c.authoredAt) as commitDate
+            RETURN 
+                count(c) as totalCommits,
+                sum(isSigned) as signedCommits,
+                count(c) - sum(isSigned) as unsignedCommits,
+                min(commitDate) as firstCommitDate,
+                max(commitDate) as lastCommitDate
+            """
+            result = session.run(query, email=email, source=source)
+            commitRecord = result.single()
+            if not commitRecord or commitRecord["totalCommits"] == 0:
+                return None
+
+            # Then get file change stats
+            fileQuery = """
+            MATCH (i:Identity {email: $email, source: $source})-[r:AUTHORED|COMMITTED]->(c:Commit)
+            MATCH (c)-[:HAS_CHANGE]->(fc:FileChange)
+            RETURN 
+                sum(fc.add) as totalLinesAdded,
+                sum(fc.del) as totalLinesDeleted,
+                count(DISTINCT CASE WHEN fc.status = 'A' THEN fc.path END) as filesCreated
+            """
+            fileResult = session.run(fileQuery, email=email, source=source)
+            fileRecord = fileResult.single()
+            
+            total_commits = commitRecord["totalCommits"]
+            signed_commits = commitRecord["signedCommits"] or 0
+            signed_percentage = (signed_commits / total_commits * 100) if total_commits > 0 else 0.0
+            
+            # Format dates
+            first_date = commitRecord["firstCommitDate"]
+            last_date = commitRecord["lastCommitDate"]
+            if first_date:
+                if isinstance(first_date, datetime):
+                    first_date = first_date.isoformat()
+                elif hasattr(first_date, 'to_native'):
+                    first_date = first_date.to_native().isoformat()
+                else:
+                    first_date = str(first_date)
+            if last_date:
+                if isinstance(last_date, datetime):
+                    last_date = last_date.isoformat()
+                elif hasattr(last_date, 'to_native'):
+                    last_date = last_date.to_native().isoformat()
+                else:
+                    last_date = str(last_date)
+            
+            return {
+                "totalCommits": total_commits,
+                "totalLinesAdded": (fileRecord["totalLinesAdded"] or 0) if fileRecord else 0,
+                "totalLinesDeleted": (fileRecord["totalLinesDeleted"] or 0) if fileRecord else 0,
+                "filesCreated": (fileRecord["filesCreated"] or 0) if fileRecord else 0,
+                "firstCommitDate": first_date or "",
+                "lastCommitDate": last_date or "",
+                "signedCommits": signed_commits,
+                "unsignedCommits": commitRecord["unsignedCommits"] or 0,
+                "signedPercentage": round(signed_percentage, 2)
+            }
+            result = session.run(query, email=email, source=source)
+            record = result.single()
+            if not record or record["totalCommits"] == 0:
+                return None
+            
+            total_commits = record["totalCommits"]
+            signed_commits = record["signedCommits"] or 0
+            signed_percentage = (signed_commits / total_commits * 100) if total_commits > 0 else 0.0
+            
+            # Format dates
+            first_date = record["firstCommitDate"]
+            last_date = record["lastCommitDate"]
+            if first_date:
+                if isinstance(first_date, datetime):
+                    first_date = first_date.isoformat()
+                elif hasattr(first_date, 'to_native'):
+                    first_date = first_date.to_native().isoformat()
+                else:
+                    first_date = str(first_date)
+            if last_date:
+                if isinstance(last_date, datetime):
+                    last_date = last_date.isoformat()
+                elif hasattr(last_date, 'to_native'):
+                    last_date = last_date.to_native().isoformat()
+                else:
+                    last_date = str(last_date)
+            
+            return {
+                "totalCommits": total_commits,
+                "totalLinesAdded": record["totalLinesAdded"] or 0,
+                "totalLinesDeleted": record["totalLinesDeleted"] or 0,
+                "filesCreated": record["filesCreated"] or 0,
+                "firstCommitDate": first_date or "",
+                "lastCommitDate": last_date or "",
+                "signedCommits": signed_commits,
+                "unsignedCommits": record["unsignedCommits"] or 0,
+                "signedPercentage": round(signed_percentage, 2)
+            }
+
+    def get_identity_commits_over_time(self, email: str, source: str = "git", timeBucket: str = "month") -> List[Dict[str, Any]]:
+        """Get commits over time for an identity using Event nodes."""
+        with self.driver.session() as session:
+            if timeBucket == "year":
+                query = """
+                MATCH (i:Identity {email: $email, source: $source})-[r:AUTHORED|COMMITTED]->(c:Commit)
+                OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+                WHERE e.type = 'commit_authored' AND e.source = 'git'
+                WITH c, COALESCE(e.ts, c.authoredAt) as ts
+                WHERE ts IS NOT NULL
+                WITH datetime({year: ts.year, month: 1, day: 1}) as bucket_date, 
+                     toString(ts.year) + '-01-01' as period,
+                     count(DISTINCT c) as count
+                ORDER BY bucket_date
+                RETURN period, count, toString(bucket_date) as date
+                """
+            else:  # default to month
+                query = """
+                MATCH (i:Identity {email: $email, source: $source})-[r:AUTHORED|COMMITTED]->(c:Commit)
+                OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+                WHERE e.type = 'commit_authored' AND e.source = 'git'
+                WITH c, COALESCE(e.ts, c.authoredAt) as ts
+                WHERE ts IS NOT NULL
+                WITH datetime({year: ts.year, month: ts.month, day: 1}) as bucket_date,
+                     toString(ts.year) + '-' + 
+                     CASE WHEN ts.month < 10 THEN '0' + toString(ts.month) ELSE toString(ts.month) END + 
+                     '-01' as period,
+                     count(DISTINCT c) as count
+                ORDER BY bucket_date
+                RETURN period, count, toString(bucket_date) as date
+                """
+            result = session.run(query, email=email, source=source)
+            buckets = []
+            for record in result:
+                date_str = record["date"]
+                # Format date string if needed
+                if date_str and 'T' in date_str:
+                    date_str = date_str.split('T')[0]
+                buckets.append({
+                    "period": record["period"],
+                    "count": record["count"],
+                    "date": date_str or record["period"]
+                })
+            return buckets
+
+    def get_identity_top_files(self, email: str, source: str = "git", limit: int = 10) -> List[Dict[str, Any]]:
+        """Get top files contributed to by an identity."""
+        with self.driver.session() as session:
+            query = """
+            MATCH (i:Identity {email: $email, source: $source})-[r:AUTHORED|COMMITTED]->(c:Commit)
+            MATCH (c)-[:HAS_CHANGE]->(fc:FileChange)-[:OF_PATH]->(p:Path)
+            WITH p.path as path, 
+                 sum(fc.add) as linesAdded,
+                 sum(fc.del) as linesDeleted,
+                 sum(fc.add + fc.del) as totalChanges,
+                 count(DISTINCT c) as commitCount
+            ORDER BY totalChanges DESC
+            LIMIT $limit
+            RETURN path, linesAdded, linesDeleted, totalChanges, commitCount
+            """
+            result = session.run(query, email=email, source=source, limit=limit)
+            files = []
+            for record in result:
+                files.append({
+                    "path": record["path"],
+                    "linesAdded": record["linesAdded"] or 0,
+                    "linesDeleted": record["linesDeleted"] or 0,
+                    "totalChanges": record["totalChanges"] or 0,
+                    "commitCount": record["commitCount"]
+                })
+            return files
+
+    def get_repository_stats(self, repositoryUrl: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get statistics for a repository."""
+        with self.driver.session() as session:
+            # Get commit and signature stats
+            commitQuery = """
+            MATCH (c:Commit)
+            OPTIONAL MATCH (c)-[:HAS_SIGNATURE]->(pgp:PGPKey)
+            OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+            WHERE e.type = 'commit_authored' AND e.source = 'git'
+            WITH DISTINCT c,
+                 CASE WHEN pgp IS NOT NULL THEN 1 ELSE 0 END as isSigned,
+                 COALESCE(e.ts, c.authoredAt) as commitDate
+            RETURN 
+                count(c) as totalCommits,
+                sum(isSigned) as signedCommits,
+                count(c) - sum(isSigned) as unsignedCommits,
+                min(commitDate) as firstCommitDate,
+                max(commitDate) as lastCommitDate
+            """
+            commitResult = session.run(commitQuery)
+            commitRecord = commitResult.single()
+            if not commitRecord or commitRecord["totalCommits"] == 0:
+                return None
+
+            # Get file and contributor stats
+            fileQuery = """
+            MATCH (c:Commit)
+            OPTIONAL MATCH (c)-[:HAS_CHANGE]->(fc:FileChange)-[:OF_PATH]->(p:Path)
+            OPTIONAL MATCH (i:Identity)-[:AUTHORED|COMMITTED]->(c)
+            RETURN 
+                count(DISTINCT p) as totalFiles,
+                count(DISTINCT i) as totalContributors
+            """
+            fileResult = session.run(fileQuery)
+            fileRecord = fileResult.single()
+            total_commits = commitRecord["totalCommits"]
+            signed_commits = commitRecord["signedCommits"] or 0
+            signed_percentage = (signed_commits / total_commits * 100) if total_commits > 0 else 0.0
+            
+            # Format dates
+            first_date = commitRecord["firstCommitDate"]
+            last_date = commitRecord["lastCommitDate"]
+            if first_date:
+                if isinstance(first_date, datetime):
+                    first_date = first_date.isoformat()
+                elif hasattr(first_date, 'to_native'):
+                    first_date = first_date.to_native().isoformat()
+                else:
+                    first_date = str(first_date)
+            if last_date:
+                if isinstance(last_date, datetime):
+                    last_date = last_date.isoformat()
+                elif hasattr(last_date, 'to_native'):
+                    last_date = last_date.to_native().isoformat()
+                else:
+                    last_date = str(last_date)
+            
+            return {
+                "totalCommits": total_commits,
+                "totalFiles": (fileRecord["totalFiles"] or 0) if fileRecord else 0,
+                "totalLinesOfCode": 0,  # Approximate - would need to calculate from file changes
+                "totalContributors": (fileRecord["totalContributors"] or 0) if fileRecord else 0,
+                "firstCommitDate": first_date or "",
+                "lastCommitDate": last_date or "",
+                "signedCommits": signed_commits,
+                "unsignedCommits": commitRecord["unsignedCommits"] or 0,
+                "signedPercentage": round(signed_percentage, 2)
+            }
+
+    def get_repository_commits_over_time(self, repositoryUrl: Optional[str] = None, timeBucket: str = "month") -> List[Dict[str, Any]]:
+        """Get commits over time for a repository using Event nodes."""
+        with self.driver.session() as session:
+            if timeBucket == "year":
+                query = """
+                MATCH (c:Commit)
+                OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+                WHERE e.type = 'commit_authored' AND e.source = 'git'
+                WITH c, COALESCE(e.ts, c.authoredAt) as ts
+                WHERE ts IS NOT NULL
+                WITH datetime({year: ts.year, month: 1, day: 1}) as bucket_date,
+                     toString(ts.year) + '-01-01' as period,
+                     count(DISTINCT c) as count
+                ORDER BY bucket_date
+                RETURN period, count, toString(bucket_date) as date
+                """
+            else:  # default to month
+                query = """
+                MATCH (c:Commit)
+                OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+                WHERE e.type = 'commit_authored' AND e.source = 'git'
+                WITH c, COALESCE(e.ts, c.authoredAt) as ts
+                WHERE ts IS NOT NULL
+                WITH datetime({year: ts.year, month: ts.month, day: 1}) as bucket_date,
+                     toString(ts.year) + '-' + 
+                     CASE WHEN ts.month < 10 THEN '0' + toString(ts.month) ELSE toString(ts.month) END + 
+                     '-01' as period,
+                     count(DISTINCT c) as count
+                ORDER BY bucket_date
+                RETURN period, count, toString(bucket_date) as date
+                """
+            result = session.run(query)
+            buckets = []
+            for record in result:
+                date_str = record["date"]
+                # Format date string if needed
+                if date_str and 'T' in date_str:
+                    date_str = date_str.split('T')[0]
+                buckets.append({
+                    "period": record["period"],
+                    "count": record["count"],
+                    "date": date_str or record["period"]
+                })
+            return buckets
+
+    def get_file_stats(self, filePath: str) -> Optional[Dict[str, Any]]:
+        """Get statistics for a file."""
+        with self.driver.session() as session:
+            query = """
+            MATCH (p:Path {path: $filePath})<-[:OF_PATH]-(fc:FileChange)<-[:HAS_CHANGE]-(c:Commit)
+            OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+            WHERE e.type = 'commit_authored' AND e.source = 'git'
+            OPTIONAL MATCH (i:Identity)-[:AUTHORED|COMMITTED]->(c)
+            WITH c, fc, e, i
+            RETURN 
+                count(DISTINCT c) as totalCommits,
+                count(DISTINCT i) as totalContributors,
+                min(CASE WHEN e IS NOT NULL THEN e.ts ELSE c.authoredAt END) as firstCommitDate,
+                max(CASE WHEN e IS NOT NULL THEN e.ts ELSE c.authoredAt END) as lastCommitDate,
+                sum(fc.add) as totalLinesAdded,
+                sum(fc.del) as totalLinesDeleted
+            """
+            result = session.run(query, filePath=filePath)
+            record = result.single()
+            if not record or record["totalCommits"] == 0:
+                return None
+            
+            # Format dates
+            first_date = record["firstCommitDate"]
+            last_date = record["lastCommitDate"]
+            if first_date:
+                if isinstance(first_date, datetime):
+                    first_date = first_date.isoformat()
+                elif hasattr(first_date, 'to_native'):
+                    first_date = first_date.to_native().isoformat()
+                else:
+                    first_date = str(first_date)
+            if last_date:
+                if isinstance(last_date, datetime):
+                    last_date = last_date.isoformat()
+                elif hasattr(last_date, 'to_native'):
+                    last_date = last_date.to_native().isoformat()
+                else:
+                    last_date = str(last_date)
+            
+            return {
+                "totalCommits": record["totalCommits"],
+                "totalContributors": record["totalContributors"] or 0,
+                "firstCommitDate": first_date or "",
+                "lastCommitDate": last_date or "",
+                "totalLinesAdded": record["totalLinesAdded"] or 0,
+                "totalLinesDeleted": record["totalLinesDeleted"] or 0
+            }
+
+    def get_file_commits_over_time(self, filePath: str, timeBucket: str = "month") -> List[Dict[str, Any]]:
+        """Get commits over time for a file using Event nodes."""
+        with self.driver.session() as session:
+            if timeBucket == "year":
+                query = """
+                MATCH (p:Path {path: $filePath})<-[:OF_PATH]-(fc:FileChange)<-[:HAS_CHANGE]-(c:Commit)
+                OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+                WHERE e.type = 'commit_authored' AND e.source = 'git'
+                WITH c, COALESCE(e.ts, c.authoredAt) as ts
+                WHERE ts IS NOT NULL
+                WITH datetime({year: ts.year, month: 1, day: 1}) as bucket_date,
+                     toString(ts.year) + '-01-01' as period,
+                     count(DISTINCT c) as count
+                ORDER BY bucket_date
+                RETURN period, count, toString(bucket_date) as date
+                """
+            else:  # default to month
+                query = """
+                MATCH (p:Path {path: $filePath})<-[:OF_PATH]-(fc:FileChange)<-[:HAS_CHANGE]-(c:Commit)
+                OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+                WHERE e.type = 'commit_authored' AND e.source = 'git'
+                WITH c, COALESCE(e.ts, c.authoredAt) as ts
+                WHERE ts IS NOT NULL
+                WITH datetime({year: ts.year, month: ts.month, day: 1}) as bucket_date,
+                     toString(ts.year) + '-' + 
+                     CASE WHEN ts.month < 10 THEN '0' + toString(ts.month) ELSE toString(ts.month) END + 
+                     '-01' as period,
+                     count(DISTINCT c) as count
+                ORDER BY bucket_date
+                RETURN period, count, toString(bucket_date) as date
+                """
+            result = session.run(query, filePath=filePath)
+            buckets = []
+            for record in result:
+                date_str = record["date"]
+                # Format date string if needed
+                if date_str and 'T' in date_str:
+                    date_str = date_str.split('T')[0]
+                buckets.append({
+                    "period": record["period"],
+                    "count": record["count"],
+                    "date": date_str or record["period"]
+                })
+            return buckets
+
+    def get_file_contributors(self, filePath: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get top contributors to a file."""
+        with self.driver.session() as session:
+            query = """
+            MATCH (p:Path {path: $filePath})<-[:OF_PATH]-(fc:FileChange)<-[:HAS_CHANGE]-(c:Commit)
+            MATCH (i:Identity)-[:AUTHORED|COMMITTED]->(c)
+            WITH i, 
+                 count(DISTINCT c) as commitCount,
+                 sum(fc.add) as linesAdded,
+                 sum(fc.del) as linesDeleted
+            ORDER BY commitCount DESC
+            LIMIT $limit
+            RETURN i.name as name, i.email as email, i.source as source, commitCount, linesAdded, linesDeleted
+            """
+            result = session.run(query, filePath=filePath, limit=limit)
+            contributors = []
+            for record in result:
+                contributors.append({
+                    "identity": {
+                        "name": record["name"],
+                        "email": record["email"],
+                        "source": record["source"]
+                    },
+                    "commitCount": record["commitCount"],
+                    "linesAdded": record["linesAdded"] or 0,
+                    "linesDeleted": record["linesDeleted"] or 0
+                })
+            return contributors
+
+    def get_all_file_paths(self, limit: Optional[int] = None) -> List[str]:
+        """Get all file paths from Path nodes."""
+        with self.driver.session() as session:
+            query = """
+            MATCH (p:Path)
+            RETURN p.path as path
+            ORDER BY p.path
+            """
+            if limit:
+                query += f" LIMIT {limit}"
+            result = session.run(query)
+            paths = [record["path"] for record in result]
+            return paths
+
+    def get_pgp_signature_stats(self) -> Dict[str, Any]:
+        """Get PGP signature statistics including unique keys count."""
+        with self.driver.session() as session:
+            query = """
+            MATCH (k:PGPKey)
+            RETURN count(DISTINCT k) as uniqueKeys
+            """
+            result = session.run(query)
+            record = result.single()
+            unique_keys = record["uniqueKeys"] or 0 if record else 0
+            
+            return {
+                "uniqueKeys": unique_keys
+            }
+
+    def get_repository_top_signers(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get top signers by number of signed commits."""
+        with self.driver.session() as session:
+            query = """
+            MATCH (i:Identity {source: "git"})-[r:AUTHORED|COMMITTED]->(c:Commit)-[:HAS_SIGNATURE]->(k:PGPKey)
+            WITH i, count(DISTINCT c) as signedCommitCount
+            ORDER BY signedCommitCount DESC
+            LIMIT $limit
+            RETURN i.name as name, i.email as email, i.source as source, signedCommitCount
+            """
+            result = session.run(query, limit=limit)
+            signers = []
+            for record in result:
+                signers.append({
+                    "identity": {
+                        "name": record["name"],
+                        "email": record["email"],
+                        "source": record["source"]
+                    },
+                    "signedCommitCount": record["signedCommitCount"]
+                })
+            return signers
+
+    def get_repository_signature_adoption_trend(self, timeBucket: str = "month") -> List[Dict[str, Any]]:
+        """Get signature adoption trend over time (percentage of commits signed per time period)."""
+        with self.driver.session() as session:
+            if timeBucket == "year":
+                query = """
+                MATCH (c:Commit)
+                OPTIONAL MATCH (c)-[:HAS_SIGNATURE]->(k:PGPKey)
+                OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+                WHERE e.type = 'commit_authored' AND e.source = 'git'
+                WITH c, 
+                     CASE WHEN k IS NOT NULL THEN 1 ELSE 0 END as isSigned,
+                     COALESCE(e.ts, c.authoredAt) as ts
+                WHERE ts IS NOT NULL
+                WITH datetime({year: ts.year, month: 1, day: 1}) as bucket_date,
+                     toString(ts.year) + '-01-01' as period,
+                     count(c) as totalCommits,
+                     sum(isSigned) as signedCommits
+                ORDER BY bucket_date
+                RETURN period, totalCommits, signedCommits, 
+                       CASE WHEN totalCommits > 0 THEN (toFloat(signedCommits) / toFloat(totalCommits) * 100.0) ELSE 0.0 END as signedPercentage,
+                       toString(bucket_date) as date
+                """
+            else:  # default to month
+                query = """
+                MATCH (c:Commit)
+                OPTIONAL MATCH (c)-[:HAS_SIGNATURE]->(k:PGPKey)
+                OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+                WHERE e.type = 'commit_authored' AND e.source = 'git'
+                WITH c, 
+                     CASE WHEN k IS NOT NULL THEN 1 ELSE 0 END as isSigned,
+                     COALESCE(e.ts, c.authoredAt) as ts
+                WHERE ts IS NOT NULL
+                WITH datetime({year: ts.year, month: ts.month, day: 1}) as bucket_date,
+                     toString(ts.year) + '-' + 
+                     CASE WHEN ts.month < 10 THEN '0' + toString(ts.month) ELSE toString(ts.month) END + 
+                     '-01' as period,
+                     count(c) as totalCommits,
+                     sum(isSigned) as signedCommits
+                ORDER BY bucket_date
+                RETURN period, totalCommits, signedCommits, 
+                       CASE WHEN totalCommits > 0 THEN (toFloat(signedCommits) / toFloat(totalCommits) * 100.0) ELSE 0.0 END as signedPercentage,
+                       toString(bucket_date) as date
+                """
+            result = session.run(query)
+            buckets = []
+            for record in result:
+                date_str = record["date"]
+                # Format date string if needed
+                if date_str and 'T' in date_str:
+                    date_str = date_str.split('T')[0]
+                buckets.append({
+                    "period": record["period"],
+                    "totalCommits": record["totalCommits"] or 0,
+                    "signedCommits": record["signedCommits"] or 0,
+                    "signedPercentage": round(record["signedPercentage"] or 0.0, 2),
+                    "date": date_str or record["period"]
+                })
+            return buckets
+
+    def get_repository_health_metrics(self) -> Dict[str, Any]:
+        """Get repository health metrics including average commits per contributor, average time between commits, and most active period."""
+        with self.driver.session() as session:
+            # Get total commits and contributors
+            statsQuery = """
+            MATCH (c:Commit)
+            OPTIONAL MATCH (i:Identity {source: "git"})-[r:AUTHORED|COMMITTED]->(c)
+            OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+            WHERE e.type = 'commit_authored' AND e.source = 'git'
+            WITH count(DISTINCT c) as totalCommits,
+                 count(DISTINCT i) as totalContributors
+            RETURN totalCommits, totalContributors
+            """
+            statsResult = session.run(statsQuery)
+            statsRecord = statsResult.single()
+            
+            total_commits = statsRecord["totalCommits"] or 0
+            total_contributors = statsRecord["totalContributors"] or 0
+            avg_commits_per_contributor = (total_commits / total_contributors) if total_contributors > 0 else 0.0
+
+            # Get commit timestamps for time between commits calculation
+            timeQuery = """
+            MATCH (c:Commit)
+            OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+            WHERE e.type = 'commit_authored' AND e.source = 'git'
+            WITH c, COALESCE(e.ts, c.authoredAt) as commitDate
+            WHERE commitDate IS NOT NULL
+            RETURN commitDate
+            ORDER BY commitDate
+            """
+            timeResult = session.run(timeQuery)
+            commit_dates = []
+            for record in timeResult:
+                commit_date = record["commitDate"]
+                if isinstance(commit_date, datetime):
+                    commit_dates.append(commit_date)
+                elif hasattr(commit_date, 'to_native'):
+                    commit_dates.append(commit_date.to_native())
+                else:
+                    try:
+                        commit_dates.append(datetime.fromisoformat(str(commit_date).replace('Z', '+00:00')))
+                    except:
+                        pass
+
+            # Calculate average time between commits
+            avg_time_between_commits = 0.0
+            if len(commit_dates) > 1:
+                total_seconds = 0
+                for i in range(1, len(commit_dates)):
+                    diff = (commit_dates[i] - commit_dates[i-1]).total_seconds()
+                    total_seconds += diff
+                avg_time_between_commits = total_seconds / (len(commit_dates) - 1) if len(commit_dates) > 1 else 0.0
+
+            # Get most active period (month/year with most commits)
+            activePeriodQuery = """
+            MATCH (c:Commit)
+            OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+            WHERE e.type = 'commit_authored' AND e.source = 'git'
+            WITH c, COALESCE(e.ts, c.authoredAt) as ts
+            WHERE ts IS NOT NULL
+            WITH datetime({year: ts.year, month: ts.month, day: 1}) as bucket_date,
+                 toString(ts.year) + '-' + 
+                 CASE WHEN ts.month < 10 THEN '0' + toString(ts.month) ELSE toString(ts.month) END + 
+                 '-01' as period,
+                 count(DISTINCT c) as commitCount
+            ORDER BY commitCount DESC
+            LIMIT 1
+            RETURN period, commitCount, toString(bucket_date) as date
+            """
+            activeResult = session.run(activePeriodQuery)
+            activeRecord = activeResult.single()
+            
+            most_active_period = ""
+            most_active_commits = 0
+            if activeRecord:
+                most_active_period = activeRecord["period"] or ""
+                most_active_commits = activeRecord["commitCount"] or 0
+                # Format the period nicely
+                if most_active_period:
+                    try:
+                        date_obj = datetime.fromisoformat(most_active_period.replace('Z', '+00:00'))
+                        most_active_period = date_obj.strftime("%B %Y")
+                    except:
+                        pass
+
+            return {
+                "averageCommitsPerContributor": round(avg_commits_per_contributor, 2),
+                "averageTimeBetweenCommits": round(avg_time_between_commits, 0),  # in seconds
+                "mostActivePeriod": most_active_period,
+                "mostActivePeriodCommits": most_active_commits
+            }
+
+    def get_repository_top_contributors(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get top contributors by commit count for the repository."""
+        with self.driver.session() as session:
+            query = """
+            MATCH (i:Identity {source: "git"})-[r:AUTHORED|COMMITTED]->(c:Commit)
+            WITH i, count(DISTINCT c) as commitCount
+            ORDER BY commitCount DESC
+            LIMIT $limit
+            RETURN i.name as name, i.email as email, i.source as source, commitCount
+            """
+            result = session.run(query, limit=limit)
+            contributors = []
+            for record in result:
+                contributors.append({
+                    "identity": {
+                        "name": record["name"],
+                        "email": record["email"],
+                        "source": record["source"]
+                    },
+                    "commitCount": record["commitCount"]
+                })
+            return contributors
+
+    def get_repository_most_active_files(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get most active files by commit count for the repository."""
+        with self.driver.session() as session:
+            query = """
+            MATCH (c:Commit)-[:HAS_CHANGE]->(fc:FileChange)-[:OF_PATH]->(p:Path)
+            OPTIONAL MATCH (i:Identity)-[:AUTHORED|COMMITTED]->(c)
+            WITH p.path as path, 
+                 count(DISTINCT c) as commitCount,
+                 count(DISTINCT i) as contributorCount
+            ORDER BY commitCount DESC
+            LIMIT $limit
+            RETURN path, commitCount, contributorCount
+            """
+            result = session.run(query, limit=limit)
+            files = []
+            for record in result:
+                files.append({
+                    "path": record["path"],
+                    "commitCount": record["commitCount"],
+                    "contributorCount": record["contributorCount"] or 0
+                })
+            return files
+
+    def get_repository_contributor_growth(self, timeBucket: str = "month") -> List[Dict[str, Any]]:
+        """Get contributor growth over time (new contributors per time period)."""
+        with self.driver.session() as session:
+            if timeBucket == "year":
+                query = """
+                MATCH (i:Identity {source: "git"})-[r:AUTHORED|COMMITTED]->(c:Commit)
+                OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+                WHERE e.type = 'commit_authored' AND e.source = 'git'
+                WITH i, c, COALESCE(e.ts, c.authoredAt) as ts
+                WHERE ts IS NOT NULL
+                WITH i, min(ts) as firstCommitDate
+                WITH datetime({year: firstCommitDate.year, month: 1, day: 1}) as bucket_date,
+                     toString(firstCommitDate.year) + '-01-01' as period,
+                     count(DISTINCT i) as newContributors
+                ORDER BY bucket_date
+                RETURN period, newContributors, toString(bucket_date) as date
+                """
+            else:  # default to month
+                query = """
+                MATCH (i:Identity {source: "git"})-[r:AUTHORED|COMMITTED]->(c:Commit)
+                OPTIONAL MATCH (e:Event)-[:ABOUT]->(c)
+                WHERE e.type = 'commit_authored' AND e.source = 'git'
+                WITH i, c, COALESCE(e.ts, c.authoredAt) as ts
+                WHERE ts IS NOT NULL
+                WITH i, min(ts) as firstCommitDate
+                WITH datetime({year: firstCommitDate.year, month: firstCommitDate.month, day: 1}) as bucket_date,
+                     toString(firstCommitDate.year) + '-' + 
+                     CASE WHEN firstCommitDate.month < 10 THEN '0' + toString(firstCommitDate.month) ELSE toString(firstCommitDate.month) END + 
+                     '-01' as period,
+                     count(DISTINCT i) as newContributors
+                ORDER BY bucket_date
+                RETURN period, newContributors, toString(bucket_date) as date
+                """
+            result = session.run(query)
+            buckets = []
+            cumulative = 0
+            for record in result:
+                date_str = record["date"]
+                # Format date string if needed
+                if date_str and 'T' in date_str:
+                    date_str = date_str.split('T')[0]
+                new_contributors = record["newContributors"] or 0
+                cumulative += new_contributors
+                buckets.append({
+                    "period": record["period"],
+                    "newContributors": new_contributors,
+                    "cumulativeContributors": cumulative,
+                    "date": date_str or record["period"]
+                })
+            return buckets

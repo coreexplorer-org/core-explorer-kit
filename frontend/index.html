@@ -389,8 +389,10 @@ body:not(.light-mode) .blog-card-thumbnail {background-color: var(--bs-tertiary-
 body:not(.light-mode) .blog-card-content h6 a {color: var(--bs-body-color)}
 body:not(.light-mode) .blog-card-content h6 a:hover {color: var(--bs-link-hover-color)}
 body:not(.light-mode) .separator-line {border-top-color: var(--bs-border-color)}
-.view-card a {text-decoration: none; color: inherit}
+.view-card a {text-decoration: none; color: inherit; display: block; cursor: pointer; position: relative; z-index: 1}
 .view-card a:hover {text-decoration: none; color: var(--bs-link-hover-color)}
+.view-card {cursor: pointer; transition: transform 0.2s}
+.view-card:hover {transform: translateY(-2px); box-shadow: 0 4px 12px rgba(var(--bs-primary-rgb), 0.4)}
   </style>
 </head>
 <body class="light-mode">
@@ -426,10 +428,10 @@ body:not(.light-mode) .separator-line {border-top-color: var(--bs-border-color)}
     </div>
     <div class="row">
       <div class="col-md-4">
-        <a href="project.html">
+        <a href="project.html" style="display: block; text-decoration: none;">
           <div class="card view-card">
-            <div class="card-img-top">
-              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAACXBIWXMAAAsTAAALEwEAmpwYAAABJUlEQVR4nO3SMQ2AQBAEQXr/SSuIu0ABgSFB0F5hbt9hV8gYAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPjvD7wAAdW/dxUAAAAASUVORK5CYII=" alt="Project View Image">
+            <div class="card-img-top" style="position: relative; padding-top: 75%; overflow: hidden; background-color: var(--bs-tertiary-bg);">
+              <i class="bi bi-graph-up" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 4em; color: var(--bs-body-color);"></i>
             </div>
             <div class="card-body">
               <h5 class="card-title">Project View</h5>
@@ -438,22 +440,22 @@ body:not(.light-mode) .separator-line {border-top-color: var(--bs-border-color)}
         </a>
       </div>
       <div class="col-md-4">
-        <a href="profile.html">
+        <a href="profile.html" style="display: block; text-decoration: none;">
           <div class="card view-card">
-            <div class="card-img-top">
-              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAACXBIWXMAAAsTAAALEwEAmpwYAAABJUlEQVR4nO3SMQ2AQBAEQXr/SSuIu0ABgSFB0F5hbt9hV8gYAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPjvD7wAAdW/dxUAAAAASUVORK5CYII=" alt="Actor View Image">
+            <div class="card-img-top" style="position: relative; padding-top: 75%; overflow: hidden; background-color: var(--bs-tertiary-bg);">
+              <i class="bi bi-person-circle" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 4em; color: var(--bs-body-color);"></i>
             </div>
             <div class="card-body">
-              <h5 class="card-title">Actor View</h5>
+              <h5 class="card-title">Contributor Profile</h5>
             </div>
           </div>
         </a>
       </div>
       <div class="col-md-4">
-        <a href="file.html">
+        <a href="file.html" style="display: block; text-decoration: none;">
           <div class="card view-card">
-            <div class="card-img-top">
-              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACWCAYAAABkW7XSAAAACXBIWXMAAAsTAAALEwEAmpwYAAABJUlEQVR4nO3SMQ2AQBAEQXr/SSuIu0ABgSFB0F5hbt9hV8gYAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPjvD7wAAdW/dxUAAAAASUVORK5CYII=" alt="File View Image">
+            <div class="card-img-top" style="position: relative; padding-top: 75%; overflow: hidden; background-color: var(--bs-tertiary-bg);">
+              <i class="bi bi-file-code" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 4em; color: var(--bs-body-color);"></i>
             </div>
             <div class="card-body">
               <h5 class="card-title">File View</h5>

@@ -1,87 +1,9 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Core Explorer - Contributor Profile</title>
+  <title>Core Explorer - File View</title>
   <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
@@ -316,45 +238,46 @@ footer .navbar-nav {
     margin-top: 10px;
     flex: 1;
 }
-.profile-section {
+.file-section {
     display: flex;
     align-items: center;
     margin-bottom: 15px;
     flex-wrap: wrap;
 }
-.profile-picture {
+.file-icon {
     width: 150px;
     height: 150px;
     border-radius: 50%;
     margin-right: 20px;
     margin-bottom: 10px;
-    border: 2px solid var(--bs-border-color); /* Circular border */
+    border: 2px solid var(--bs-border-color);
     background-color: var(--bs-tertiary-bg);
     display: flex;
     align-items: center;
     justify-content: center;
 }
-.profile-picture i {
-    font-size: 5em; /* Adjust size to fit within the circle */
+.file-icon i {
+    font-size: 5em;
     color: var(--bs-body-color);
 }
-body.light-mode .profile-picture {
+body.light-mode .file-icon {
     background-color: #ddd;
 }
-body.light-mode .profile-picture i {
+body.light-mode .file-icon i {
     color: #666;
 }
-.profile-details {
+.file-details {
     display: flex;
     flex-direction: column;
     justify-content: center;
     padding: 10px 0;
 }
-.profile-details h3 {
+.file-details h3 {
     margin: 0;
     font-size: 1.5em;
+    word-break: break-all;
 }
-.profile-details p {
+.file-details p {
     margin: 5px 0 0;
     font-size: 0.9em;
 }
@@ -379,29 +302,6 @@ body.light-mode .profile-picture i {
     font-weight: bold;
     font-size: 1.2em;
 }
-.stat-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 1em;
-    padding: 10px;
-}
-.stat-item {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-}
-.stat-label {
-    font-size: 1em;
-}
-.stat-value {
-    font-size: 1.2em;
-    font-weight: bold;
-}
-.stat-divider {
-    margin: 0 10px;
-    color: var(--bs-body-color);
-}
 .commits-chart-container {
     height: 300px;
     background-color: var(--bs-tertiary-bg);
@@ -417,37 +317,36 @@ body.light-mode .commits-chart-container {
     max-height: 100%;
     width: 100%;
 }
-.contribution-table {
+.contributors-table {
     margin-bottom: 15px;
 }
-.contribution-table table {
+.contributors-table table {
     border-collapse: collapse;
     width: 100%;
 }
-.contribution-table th, .contribution-table td {
+.contributors-table th, .contributors-table td {
     padding: 8px;
     font-size: 1em;
     border: 1px solid var(--bs-border-color);
 }
-.contribution-table th {
+.contributors-table th {
     text-align: left;
 }
-/* Center the titles for chart and table */
 h4 {
     text-align: center;
 }
-.contribution-table td {
+.contributors-table td {
     text-align: right;
 }
-.contribution-table td:first-child {
+.contributors-table td:first-child {
     text-align: left;
 }
-.contribution-table td a {
+.contributors-table td a {
     color: var(--bs-body-color);
     text-decoration: none;
     transition: color 0.2s;
 }
-.contribution-table td a:hover {
+.contributors-table td a:hover {
     color: var(--bs-link-hover-color);
     text-decoration: underline;
 }
@@ -474,25 +373,21 @@ h4 {
     }
 }
 @media (min-width: 576px) and (max-width: 991px) {
-    /* Tablet mode: Center profile section */
-    .profile-section {
+    .file-section {
         justify-content: center;
         text-align: center;
     }
-    .profile-picture {
+    .file-icon {
         width: 150px;
         height: 150px;
         margin-right: 15px;
         margin-bottom: 10px;
     }
-    .profile-picture i {
-        font-size: 4em; /* Slightly smaller icon for tablet */
+    .file-icon i {
+        font-size: 4em;
     }
     .stat-box table {
         display: none;
-    }
-    .stat-box .stat-row {
-        display: flex;
     }
 }
 @media (min-width: 992px) {
@@ -509,28 +404,26 @@ h4 {
     .navbar-top {
         flex: 1;
     }
-    /* Desktop mode: Center profile section and optimize layout */
-    .profile-section {
+    .file-section {
         justify-content: center;
     }
-    .profile-picture {
+    .file-icon {
         width: 200px;
         height: 200px;
         margin-right: 30px;
     }
-    .profile-picture i {
-        font-size: 5em; /* Larger icon for desktop */
+    .file-icon i {
+        font-size: 5em;
     }
     .content-container h1 {font-size: 2.5em}
     .content-container p {font-size: 1.2em}
-    .profile-details h3 {font-size: 2em}
-    /* Set max-width for chart, table, and stats box to prevent over-expansion */
+    .file-details h3 {font-size: 2em}
     .commits-chart-container {
         max-width: 800px;
         margin-left: auto;
         margin-right: auto;
     }
-    .contribution-table {
+    .contributors-table {
         max-width: 800px;
         margin-left: auto;
         margin-right: auto;
@@ -543,12 +436,9 @@ h4 {
     .stat-box table {
         display: none;
     }
-    .stat-box .stat-row {
-        display: flex;
-    }
 }
 @media (max-width: 991px) {
-    .profile-section {
+    .file-section {
         align-items: center;
     }
     .navbar-brand-text {
@@ -576,26 +466,23 @@ h4 {
     }
 }
 @media (max-width: 575px) {
-    .profile-section {
-        flex-wrap: nowrap; /* Keep picture and text in a row */
+    .file-section {
+        flex-wrap: nowrap;
     }
-    .profile-picture {
+    .file-icon {
         width: 100px;
         height: 100px;
         margin-right: 10px;
         margin-bottom: 0;
     }
-    .profile-picture i {
-        font-size: 3em; /* Smaller icon for mobile */
+    .file-icon i {
+        font-size: 3em;
     }
-    .profile-details h3 {
+    .file-details h3 {
         font-size: 1.2em;
     }
     .search-bar {
         font-size: 0.9em;
-    }
-    .stat-box .stat-row {
-        display: none;
     }
     .stat-box table {
         display: table;
@@ -625,7 +512,7 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
     </div>
     <div class="search-container">
       <div class="search-wrapper" style="position: relative;">
-        <input type="text" class="search-bar" id="search-bar" placeholder="Search contributors by email..." autocomplete="off">
+        <input type="text" class="search-bar" id="search-bar" placeholder="Search files (e.g., src/main.cpp)..." autocomplete="off">
         <button class="search-btn" id="search-btn"><i class="fas fa-search"></i></button>
         <div class="dropdown-results" id="dropdown-results" style="display: none;"></div>
       </div>
@@ -635,14 +522,13 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
   <div class="container-fluid content-container box">
     <div class="row">
       <main class="col-12 main-content">
-        <div class="profile-section">
-          <div class="profile-picture">
-            <i class="bi bi-person-circle"></i>
+        <div class="file-section">
+          <div class="file-icon">
+            <i class="bi bi-file-code"></i>
           </div>
-          <div class="profile-details">
-            <h3 id="contributor-name">Loading...</h3>
-            <p id="contributor-start">Started Contributing: January 3, 2009</p>
-            <p id="repo-details">Loading repository details...</p>
+          <div class="file-details">
+            <h3 id="file-path">Enter a file path to view statistics</h3>
+            <p id="file-dates">First commit: - | Last commit: -</p>
           </div>
         </div>
         <div class="row">
@@ -651,33 +537,21 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
               <table>
                 <tr>
                   <th>Total Commits</th>
-                  <td id="total-commits">271</td>
+                  <td id="total-commits">-</td>
                 </tr>
                 <tr>
-                  <th>Lines of Code</th>
-                  <td id="lines-of-code">36,000</td>
+                  <th>Total Contributors</th>
+                  <td id="total-contributors">-</td>
                 </tr>
                 <tr>
-                  <th>Files Created</th>
-                  <td id="files-created">50</td>
+                  <th>Lines Added</th>
+                  <td id="lines-added">-</td>
+                </tr>
+                <tr>
+                  <th>Lines Deleted</th>
+                  <td id="lines-deleted">-</td>
                 </tr>
               </table>
-              <div class="stat-row">
-                <div class="stat-item">
-                  <span class="stat-label">Total Commits</span>
-                  <span class="stat-value" id="total-commits-row">271</span>
-                </div>
-                <span class="stat-divider">|</span>
-                <div class="stat-item">
-                  <span class="stat-label">Lines of Code</span>
-                  <span class="stat-value" id="lines-of-code-row">36,000</span>
-                </div>
-                <span class="stat-divider">|</span>
-                <div class="stat-item">
-                  <span class="stat-label">Files Created</span>
-                  <span class="stat-value" id="files-created-row">50</span>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -685,21 +559,18 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
           <div class="col-12">
             <h4 style="padding-top: 20px;">Commits Over Time</h4>
             <div class="commits-chart-container">
-              <canvas id="commitsChart"></canvas>
+              <canvas id="fileCommitsChart"></canvas>
             </div>
           </div>
         </div>
         <div class="row">
           <div class="col-12">
-            <h4>Top Files Contributed To (Tracked Paths Only)</h4>
-            <p style="text-align: center; font-size: 0.9em; color: #666; margin-bottom: 10px;">
-              <em>Note: Only shows files from tracked paths (e.g., src/policy, src/consensus). Many commits may not have file change data.</em>
-            </p>
-            <div class="contribution-table">
+            <h4>Top Contributors</h4>
+            <div class="contributors-table">
               <table>
                 <thead>
                   <tr>
-                    <th>File Name</th>
+                    <th>Contributor</th>
                     <th>Commits</th>
                     <th>Lines Added</th>
                     <th>Lines Deleted</th>
@@ -707,7 +578,7 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
                 </thead>
                 <tbody>
                   <tr>
-                    <td colspan="4">Loading...</td>
+                    <td colspan="4">Enter a file path to view contributors</td>
                   </tr>
                 </tbody>
               </table>
@@ -742,8 +613,8 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
       dropdownResults: document.getElementById('dropdown-results')
     };
 
-    // Store all identity emails
-    let allIdentityEmails = [];
+    // Store all file paths
+    let allFilePaths = [];
     let selectedIndex = -1;
     function toggleTheme() {
       document.body.classList.toggle('light-mode');
@@ -764,7 +635,7 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
     elements.themeToggleHeader.addEventListener('click', toggleTheme);
     elements.themeToggleFooter.addEventListener('click', toggleTheme);
 
-    // Function to send GraphQL queries directly to the API
+    // Function to send GraphQL queries
     async function sendQuery(query) {
       try {
         const response = await fetch('/api/graphql', {
@@ -788,218 +659,6 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
         console.error('Error sending query:', error);
         throw error;
       }
-    }
-
-    // Function to fetch contributor data and repository details
-    async function fetchContributorData(email) {
-      try {
-        // Fetch identity, stats, commits over time, and top files
-        const identityQuery = `
-          query {
-            identity(email: "${email}", source: "git") {
-              name
-              email
-              source
-            }
-            identityStats(email: "${email}", source: "git") {
-              totalCommits
-              totalLinesAdded
-              totalLinesDeleted
-              filesCreated
-              firstCommitDate
-              lastCommitDate
-              signedCommits
-              unsignedCommits
-              signedPercentage
-            }
-            repository:githubRepository(url: "https://github.com/bitcoin/bitcoin.git") {
-              name
-              description
-              url
-            }
-          }
-        `;
-        const identityResponse = await sendQuery(identityQuery);
-
-        // Extract contributor name
-        const identity = identityResponse.data?.identity;
-        const stats = identityResponse.data?.identityStats;
-        const contributorName = identity?.name || 'Contributor not found';
-        document.getElementById('contributor-name').textContent = contributorName;
-
-        // Update stats
-        if (stats) {
-          document.getElementById('total-commits').textContent = stats.totalCommits || 0;
-          document.getElementById('total-commits-row').textContent = stats.totalCommits || 0;
-          document.getElementById('lines-of-code').textContent = (stats.totalLinesAdded || 0).toLocaleString();
-          document.getElementById('lines-of-code-row').textContent = (stats.totalLinesAdded || 0).toLocaleString();
-          document.getElementById('files-created').textContent = stats.filesCreated || 0;
-          document.getElementById('files-created-row').textContent = stats.filesCreated || 0;
-          
-          // Update start date
-          if (stats.firstCommitDate) {
-            const startDate = new Date(stats.firstCommitDate);
-            document.getElementById('contributor-start').textContent = 
-              `Started Contributing: ${startDate.toLocaleDateString()}`;
-          }
-        }
-
-        // Extract repository details
-        const repo = identityResponse.data?.repository || {};
-        const repoName = repo.name || 'Unknown';
-        const repoDescription = repo.description || 'No description available';
-        const repoUrl = repo.url || '#';
-        document.getElementById('repo-details').innerHTML = `
-          Repository: <a href="${repoUrl}" target="_blank">${repoName}</a><br>
-          Description: ${repoDescription}
-        `;
-
-        // Fetch commits over time for chart
-        const commitsQuery = `
-          query {
-            identityCommitsOverTime(email: "${email}", source: "git", timeBucket: "month") {
-              period
-              count
-              date
-            }
-          }
-        `;
-        const commitsResponse = await sendQuery(commitsQuery);
-        const timeBuckets = commitsResponse.data?.identityCommitsOverTime || [];
-        
-        // Update chart with real data
-        if (timeBuckets.length > 0) {
-          updateCommitsChart(timeBuckets);
-        }
-
-        // Fetch top files
-        const filesQuery = `
-          query {
-            identityTopFiles(email: "${email}", source: "git", limit: 8) {
-              path
-              linesAdded
-              linesDeleted
-              totalChanges
-              commitCount
-            }
-          }
-        `;
-        const filesResponse = await sendQuery(filesQuery);
-        const topFiles = filesResponse.data?.identityTopFiles || [];
-        
-        // Update top files table
-        updateTopFilesTable(topFiles);
-
-      } catch (error) {
-        console.error('Error fetching contributor data:', error);
-        document.getElementById('contributor-name').textContent = 'Please verify the email or try a different contributor email';
-        document.getElementById('repo-details').innerHTML = 'Please verify the email or try a different contributor email';
-      }
-    }
-
-    // Function to update commits chart with real data
-    function updateCommitsChart(timeBuckets) {
-      const chartElement = document.getElementById('commitsChart');
-      if (!chartElement) return;
-
-      // Destroy existing chart if it exists
-      if (window.commitsChartInstance) {
-        window.commitsChartInstance.destroy();
-      }
-
-      const labels = timeBuckets.map(bucket => {
-        const date = new Date(bucket.date);
-        return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
-      });
-      
-      // Calculate cumulative commits
-      let cumulative = 0;
-      const commitsData = timeBuckets.map(bucket => {
-        cumulative += bucket.count;
-        return cumulative;
-      });
-
-      const ctx = chartElement.getContext('2d');
-      window.commitsChartInstance = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: labels,
-          datasets: [{
-            label: 'Total Commits Over Time',
-            data: commitsData,
-            borderColor: 'rgba(247, 147, 26, 1)',
-            backgroundColor: 'rgba(247, 147, 26, 0.2)',
-            fill: true,
-            tension: 0.3
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            x: {
-              title: {
-                display: true,
-                text: 'Date',
-                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
-              },
-              ticks: {
-                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
-              },
-              grid: {
-                color: getComputedStyle(document.body).getPropertyValue('--bs-border-color').trim()
-              }
-            },
-            y: {
-              title: {
-                display: true,
-                text: 'Total Commits',
-                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
-              },
-              ticks: {
-                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
-              },
-              grid: {
-                color: getComputedStyle(document.body).getPropertyValue('--bs-border-color').trim()
-              },
-              beginAtZero: true
-            }
-          },
-          plugins: {
-            legend: {
-              labels: {
-                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
-              }
-            }
-          }
-        }
-      });
-    }
-
-    // Function to update top files table
-    function updateTopFilesTable(files) {
-      const tbody = document.querySelector('.contribution-table tbody');
-      if (!tbody) return;
-
-      tbody.innerHTML = '';
-      
-      if (files.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4">No file contributions found in tracked paths</td></tr>';
-        return;
-      }
-
-      files.forEach(file => {
-        const row = document.createElement('tr');
-        const filePath = file.path || '';
-        const fileUrl = filePath ? `file.html?file=${encodeURIComponent(filePath)}` : '#';
-        row.innerHTML = `
-          <td><a href="${fileUrl}">${file.path}</a></td>
-          <td>${(file.commitCount || 0).toLocaleString()}</td>
-          <td>${(file.linesAdded || 0).toLocaleString()}</td>
-          <td>${(file.linesDeleted || 0).toLocaleString()}</td>
-        `;
-        tbody.appendChild(row);
-      });
     }
 
     // Simple fuzzy search function
@@ -1032,16 +691,16 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
       return { match: false, score: Infinity };
     }
 
-    // Function to filter and sort identity emails
-    function filterIdentityEmails(query) {
+    // Function to filter and sort file paths
+    function filterFilePaths(query) {
       if (!query || query.trim() === '') {
         return [];
       }
       
-      const results = allIdentityEmails
-        .map(email => {
-          const match = fuzzyMatch(query, email);
-          return { email, ...match };
+      const results = allFilePaths
+        .map(path => {
+          const match = fuzzyMatch(query, path);
+          return { path, ...match };
         })
         .filter(result => result.match)
         .sort((a, b) => {
@@ -1049,7 +708,7 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
           if (a.score !== b.score) {
             return a.score - b.score;
           }
-          return a.email.localeCompare(b.email);
+          return a.path.localeCompare(b.path);
         })
         .slice(0, 20); // Limit to top 20 results
       
@@ -1067,10 +726,10 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
       results.forEach((result, index) => {
         const item = document.createElement('div');
         item.className = 'dropdown-item';
-        item.textContent = result.email;
-        item.dataset.email = result.email;
+        item.textContent = result.path;
+        item.dataset.path = result.path;
         item.addEventListener('click', () => {
-          selectIdentity(result.email);
+          selectFile(result.path);
         });
         elements.dropdownResults.appendChild(item);
       });
@@ -1079,69 +738,151 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
       selectedIndex = -1;
     }
 
-    // Function to select an identity and reload page
-    function selectIdentity(email) {
+    // Function to select a file and reload page
+    function selectFile(filePath) {
       // Hide dropdown
       elements.dropdownResults.style.display = 'none';
       
-      // Reload page with email as query parameter
+      // Reload page with file path as query parameter
       const url = new URL(window.location.href);
-      url.searchParams.set('email', email);
+      url.searchParams.set('file', filePath);
       window.location.href = url.toString();
     }
 
-    // Function to load all identity emails
-    async function loadAllIdentityEmails() {
+    // Function to load all file paths
+    async function loadAllFilePaths() {
       try {
         const query = `
           query {
-            allIdentityEmails
+            allFilePaths
           }
         `;
         const response = await sendQuery(query);
-        allIdentityEmails = response.data?.allIdentityEmails || [];
-        console.log(`Loaded ${allIdentityEmails.length} identity emails`);
+        allFilePaths = response.data?.allFilePaths || [];
+        console.log(`Loaded ${allFilePaths.length} file paths`);
       } catch (error) {
-        console.error('Error loading identity emails:', error);
-        allIdentityEmails = [];
+        console.error('Error loading file paths:', error);
+        allFilePaths = [];
       }
     }
 
-    // Check for email parameter in URL on page load
-    function checkUrlForEmail() {
+    // Check for file parameter in URL on page load
+    function checkUrlForFile() {
       const urlParams = new URLSearchParams(window.location.search);
-      const email = urlParams.get('email');
-      if (email) {
-        elements.searchBar.value = email;
-        fetchContributorData(email);
+      const filePath = urlParams.get('file');
+      if (filePath) {
+        elements.searchBar.value = filePath;
+        fetchFileData(filePath);
       }
     }
 
-    // Function to fetch contributor name based on search input
-    async function searchContributor() {
-      const email = elements.searchBar.value.trim();
-      if (!email) {
-        alert('Please enter a valid email address');
-        return;
+    // Function to fetch file data
+    async function fetchFileData(filePath) {
+      try {
+        // Fetch file stats
+        const statsQuery = `
+          query {
+            fileStats(filePath: "${filePath}") {
+              totalCommits
+              totalContributors
+              firstCommitDate
+              lastCommitDate
+              totalLinesAdded
+              totalLinesDeleted
+            }
+          }
+        `;
+        const statsResponse = await sendQuery(statsQuery);
+        const stats = statsResponse.data?.fileStats;
+
+        if (!stats) {
+          document.getElementById('file-path').textContent = 'File not found or not tracked';
+          return;
+        }
+
+        // Update file path and dates
+        document.getElementById('file-path').textContent = filePath;
+        if (stats.firstCommitDate && stats.lastCommitDate) {
+          const firstDate = new Date(stats.firstCommitDate);
+          const lastDate = new Date(stats.lastCommitDate);
+          document.getElementById('file-dates').textContent = 
+            `First commit: ${firstDate.toLocaleDateString()} | Last commit: ${lastDate.toLocaleDateString()}`;
+        }
+
+        // Update stats
+        document.getElementById('total-commits').textContent = (stats.totalCommits || 0).toLocaleString();
+        document.getElementById('total-contributors').textContent = (stats.totalContributors || 0).toLocaleString();
+        document.getElementById('lines-added').textContent = (stats.totalLinesAdded || 0).toLocaleString();
+        document.getElementById('lines-deleted').textContent = (stats.totalLinesDeleted || 0).toLocaleString();
+
+        // Fetch commits over time
+        const commitsQuery = `
+          query {
+            fileCommitsOverTime(filePath: "${filePath}", timeBucket: "month") {
+              period
+              count
+              date
+            }
+          }
+        `;
+        const commitsResponse = await sendQuery(commitsQuery);
+        const timeBuckets = commitsResponse.data?.fileCommitsOverTime || [];
+        
+        if (timeBuckets.length > 0) {
+          renderFileChart(timeBuckets);
+        }
+
+        // Fetch contributors
+        const contributorsQuery = `
+          query {
+            fileContributors(filePath: "${filePath}", limit: 10) {
+              identity {
+                name
+                email
+                source
+              }
+              commitCount
+              linesAdded
+              linesDeleted
+            }
+          }
+        `;
+        const contributorsResponse = await sendQuery(contributorsQuery);
+        const contributors = contributorsResponse.data?.fileContributors || [];
+        
+        updateContributorsTable(contributors);
+
+      } catch (error) {
+        console.error('Error fetching file data:', error);
+        document.getElementById('file-path').textContent = 'Error loading file data';
       }
-      // Reload page with email
-      selectIdentity(email);
     }
 
-    // Function to render the commits over time chart (initial placeholder)
-    function renderCommitsChart() {
-      // This will be replaced by updateCommitsChart when real data is loaded
-      const chartElement = document.getElementById('commitsChart');
+    // Function to render file commits chart
+    function renderFileChart(timeBuckets) {
+      const chartElement = document.getElementById('fileCommitsChart');
       if (!chartElement) return;
 
+      // Destroy existing chart if it exists
+      if (window.fileChartInstance) {
+        window.fileChartInstance.destroy();
+      }
+
+      const labels = timeBuckets.map(bucket => {
+        const date = new Date(bucket.date);
+        return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+      });
+      
+      const commitsData = timeBuckets.map(bucket => bucket.count);
+
       const ctx = chartElement.getContext('2d');
-      window.commitsChartInstance = new Chart(ctx, {
+      window.fileChartInstance = new Chart(ctx, {
         type: 'line',
         data: {
-          labels: [],
+          labels: labels,
           datasets: [{
-            label: 'Total Commits Over Time',
-            data: [],
+            label: 'Commits Per Month',
+            data: commitsData,
             borderColor: 'rgba(247, 147, 26, 1)',
             backgroundColor: 'rgba(247, 147, 26, 0.2)',
             fill: true,
@@ -1168,7 +909,7 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
             y: {
               title: {
                 display: true,
-                text: 'Total Commits',
+                text: 'Commits',
                 color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
               },
               ticks: {
@@ -1191,11 +932,58 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
       });
     }
 
+    // Function to update contributors table
+    function updateContributorsTable(contributors) {
+      const tbody = document.querySelector('.contributors-table tbody');
+      if (!tbody) return;
+
+      tbody.innerHTML = '';
+      
+      if (contributors.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4">No contributors found</td></tr>';
+        return;
+      }
+
+      contributors.forEach(contrib => {
+        const row = document.createElement('tr');
+        const email = contrib.identity?.email || '';
+        const name = contrib.identity?.name || contrib.identity?.email || 'Unknown';
+        
+        // Create link to profile page if email exists
+        let nameCell;
+        if (email) {
+          const profileUrl = `profile.html?email=${encodeURIComponent(email)}`;
+          nameCell = `<td><a href="${profileUrl}">${name}</a></td>`;
+        } else {
+          nameCell = `<td>${name}</td>`;
+        }
+        
+        row.innerHTML = `
+          ${nameCell}
+          <td>${contrib.commitCount || 0}</td>
+          <td>${(contrib.linesAdded || 0).toLocaleString()}</td>
+          <td>${(contrib.linesDeleted || 0).toLocaleString()}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    // Function to search for file
+    async function searchFile() {
+      const filePath = elements.searchBar.value.trim();
+      if (!filePath) {
+        alert('Please enter a file path');
+        return;
+      }
+      // Reload page with file path
+      selectFile(filePath);
+    }
+
     // Handle search bar input
     elements.searchBar.addEventListener('input', function(event) {
       const query = event.target.value.trim();
       if (query.length > 0) {
-        const results = filterIdentityEmails(query);
+        const results = filterFilePaths(query);
         displayDropdownResults(results);
       } else {
         elements.dropdownResults.style.display = 'none';
@@ -1217,9 +1005,9 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
       } else if (event.key === 'Enter') {
         event.preventDefault();
         if (selectedIndex >= 0 && items[selectedIndex]) {
-          selectIdentity(items[selectedIndex].dataset.email);
+          selectFile(items[selectedIndex].dataset.path);
         } else {
-          searchContributor();
+          searchFile();
         }
       } else if (event.key === 'Escape') {
         elements.dropdownResults.style.display = 'none';
@@ -1246,27 +1034,19 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
       }
     });
 
-    // Add event listeners for the search button and Enter key
-    elements.searchBtn.addEventListener('click', searchContributor);
+    // Add event listeners
+    elements.searchBtn.addEventListener('click', searchFile);
     elements.searchBar.addEventListener('keypress', function(event) {
       if (event.key === 'Enter' && selectedIndex === -1) {
         event.preventDefault();
-        searchContributor();
+        searchFile();
       }
     });
 
-    // Fetch initial data and render chart when the page loads
-    window.onload = function() {
-      loadAllIdentityEmails().then(() => {
-        checkUrlForEmail();
-        // If no email in URL, load default (Satoshi)
-        const urlParams = new URLSearchParams(window.location.search);
-        if (!urlParams.get('email')) {
-          fetchContributorData("satoshin@gmx.com");
-        }
-        renderCommitsChart();
-      });
-    };
+    // Load file paths and check URL on page load
+    loadAllFilePaths().then(() => {
+      checkUrlForFile();
+    });
   </script>
 </body>
 </html>

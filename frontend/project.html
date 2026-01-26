@@ -261,7 +261,9 @@ footer .navbar-nav {
 }
 .stat-table {
     margin-left: auto;
+    margin-right: auto;
     margin-bottom: 15px;
+    max-width: 800px;
 }
 .stat-table table {
     border-collapse: collapse;
@@ -286,6 +288,14 @@ footer .navbar-nav {
     font-size: 1em;
     margin-bottom: 15px;
     padding: 10px;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+}
+.health-metrics, .pgp-stats-box {
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
 }
 .stat-item {
     display: inline-flex;
@@ -315,6 +325,56 @@ footer .navbar-nav {
     text-align: center;
     padding: 10px;
     margin-bottom: 15px;
+}
+.commits-chart-container {
+    height: 300px;
+    background-color: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-sm);
+    padding: 10px;
+    margin-bottom: 15px;
+}
+body.light-mode .commits-chart-container {
+    background-color: #e9ecef;
+}
+.commits-chart-container canvas {
+    max-height: 100%;
+    width: 100%;
+}
+.contributors-table, .files-table, .signers-table {
+    margin-bottom: 15px;
+}
+.contributors-table table, .files-table table, .signers-table table {
+    border-collapse: collapse;
+    width: 100%;
+}
+.contributors-table th, .contributors-table td,
+.files-table th, .files-table td,
+.signers-table th, .signers-table td {
+    padding: 8px;
+    font-size: 1em;
+    border: 1px solid var(--bs-border-color);
+}
+.contributors-table th, .files-table th, .signers-table th {
+    text-align: left;
+}
+.contributors-table td, .files-table td, .signers-table td {
+    text-align: right;
+}
+.contributors-table td:first-child, .files-table td:first-child, .signers-table td:first-child {
+    text-align: left;
+}
+.contributors-table td a, .files-table td a, .signers-table td a {
+    color: var(--bs-body-color);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+.contributors-table td a:hover, .files-table td a:hover, .signers-table td a:hover {
+    color: var(--bs-link-hover-color);
+    text-decoration: underline;
+}
+h4 {
+    text-align: center;
 }
 .nav-link i {
     font-size: 1em;
@@ -374,6 +434,21 @@ footer .navbar-nav {
     .project-details h3 {font-size: 2em}
     /* Set max-width for graphic placeholders to prevent over-expansion */
     .graphic-placeholder {
+        max-width: 800px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    .commits-chart-container {
+        max-width: 800px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    .contributors-table, .files-table, .signers-table {
+        max-width: 800px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    .health-metrics, .pgp-stats-box {
         max-width: 800px;
         margin-left: auto;
         margin-right: auto;
@@ -454,7 +529,7 @@ body:not(.light-mode) .separator-line {border-top-color: var(--bs-border-color)}
 <body class="light-mode">
   <nav class="navbar navbar-expand-lg navbar-dark box" id="navbar">
     <div class="navbar-top">
-      <a class="navbar-brand" href="#">
+      <a class="navbar-brand" href="index.html">
         <img src="https://i.imgur.com/0cx91au.png" alt="Core Explorer Logo" class="cek-logo">
         <span class="navbar-brand-text">
           <span>Core</span>
@@ -489,40 +564,153 @@ body:not(.light-mode) .separator-line {border-top-color: var(--bs-border-color)}
             <table>
               <tr>
                 <th>Lines of Code</th>
-                <td>3,214</td>
+                <td id="total-loc">Loading...</td>
               </tr>
               <tr>
                 <th>Files</th>
-                <td>4,321</td>
+                <td id="total-files">Loading...</td>
               </tr>
               <tr>
                 <th>Commits</th>
-                <td>44,727</td>
+                <td id="total-commits">Loading...</td>
+              </tr>
+              <tr>
+                <th>Contributors</th>
+                <td id="total-contributors">Loading...</td>
+              </tr>
+              <tr>
+                <th>Signed Commits</th>
+                <td id="signed-commits">Loading...</td>
+              </tr>
+              <tr>
+                <th>Signed %</th>
+                <td id="signed-percentage">Loading...</td>
               </tr>
             </table>
           </div>
           <div class="stat-row box">
             <div class="stat-item">
-              <span class="stat-label">Lines of Code</span>
-              <span class="stat-value">3,214</span>
-            </div>
-            <span class="stat-divider">|</span>
-            <div class="stat-item">
               <span class="stat-label">Files</span>
-              <span class="stat-value">4,321</span>
+              <span class="stat-value" id="total-files-row">Loading...</span>
             </div>
             <span class="stat-divider">|</span>
             <div class="stat-item">
               <span class="stat-label">Commits</span>
-              <span class="stat-value">44,727</span>
+              <span class="stat-value" id="total-commits-row">Loading...</span>
+            </div>
+            <span class="stat-divider">|</span>
+            <div class="stat-item">
+              <span class="stat-label">Contributors</span>
+              <span class="stat-value" id="total-contributors-row">Loading...</span>
+            </div>
+          </div>
+          <div class="health-metrics box" style="margin-top: 15px;">
+            <h5 style="text-align: center; margin-bottom: 15px;">Repository Health Metrics</h5>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <th style="text-align: left; padding: 8px;">Average Commits per Contributor</th>
+                <td style="text-align: right; padding: 8px; font-weight: bold;" id="avg-commits-per-contributor">Loading...</td>
+              </tr>
+              <tr>
+                <th style="text-align: left; padding: 8px;">Average Time Between Commits</th>
+                <td style="text-align: right; padding: 8px; font-weight: bold;" id="avg-time-between-commits">Loading...</td>
+              </tr>
+              <tr>
+                <th style="text-align: left; padding: 8px;">Most Active Period</th>
+                <td style="text-align: right; padding: 8px; font-weight: bold;" id="most-active-period">Loading...</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-12">
+            <h4 style="padding-top: 20px;">Commits Over Time</h4>
+            <div class="commits-chart-container" style="height: 300px; background-color: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-radius: var(--bs-border-radius-sm); padding: 10px; margin-bottom: 15px;">
+              <canvas id="repositoryCommitsChart"></canvas>
             </div>
           </div>
         </div>
-        <div class="graphic-placeholder">
-          [Placeholder for Neo4j graph visualization]
+        <div class="row">
+          <div class="col-12">
+            <h4 style="padding-top: 20px;">Contributor Growth Over Time</h4>
+            <div class="commits-chart-container" style="height: 300px; background-color: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-radius: var(--bs-border-radius-sm); padding: 10px; margin-bottom: 15px;">
+              <canvas id="contributorGrowthChart"></canvas>
+            </div>
+          </div>
         </div>
-        <div class="graphic-placeholder">
-          [Placeholder for heat map visualization]
+        <div class="row">
+          <div class="col-12">
+            <h4>Top Contributors</h4>
+            <div class="contributors-table box" style="margin-bottom: 15px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Contributor</th>
+                    <th>Commits</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="2">Loading...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-12">
+            <h4>Most Active Files</h4>
+            <div class="files-table box" style="margin-bottom: 15px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>File Name</th>
+                    <th>Commits</th>
+                    <th>Contributors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="3">Loading...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-12">
+            <h4>PGP Signature Statistics</h4>
+            <div class="pgp-stats-box box" style="margin-bottom: 15px;">
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                <tr>
+                  <th style="text-align: left; padding: 8px;">Unique PGP Keys</th>
+                  <td style="text-align: right; padding: 8px; font-weight: bold;" id="unique-pgp-keys">Loading...</td>
+                </tr>
+              </table>
+            </div>
+            <h5 style="text-align: center; margin-top: 20px;">Top Signers</h5>
+            <div class="signers-table box" style="margin-bottom: 15px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Signer</th>
+                    <th>Signed Commits</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="2">Loading...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h5 style="text-align: center; margin-top: 20px;">Signature Adoption Trend</h5>
+            <div class="commits-chart-container" style="height: 300px; background-color: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-radius: var(--bs-border-radius-sm); padding: 10px; margin-bottom: 15px;">
+              <canvas id="signatureAdoptionChart"></canvas>
+            </div>
+          </div>
         </div>
       </main>
     </div>
@@ -541,6 +729,7 @@ body:not(.light-mode) .separator-line {border-top-color: var(--bs-border-color)}
   <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
   <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <script>
     const elements = {
       themeToggleHeader: document.getElementById('theme-toggle-header'),
@@ -565,6 +754,660 @@ body:not(.light-mode) .separator-line {border-top-color: var(--bs-border-color)}
     }
     elements.themeToggleHeader.addEventListener('click', toggleTheme);
     elements.themeToggleFooter.addEventListener('click', toggleTheme);
+
+    // Function to send GraphQL queries
+    async function sendQuery(query) {
+      try {
+        const response = await fetch('/api/graphql', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.errors) {
+          throw new Error(data.errors);
+        }
+
+        return data;
+      } catch (error) {
+        console.error('Error sending query:', error);
+        throw error;
+      }
+    }
+
+    // Function to fetch repository statistics
+    async function fetchRepositoryStats() {
+      try {
+        const statsQuery = `
+          query {
+            repositoryStats {
+              totalCommits
+              totalFiles
+              totalLinesOfCode
+              totalContributors
+              firstCommitDate
+              lastCommitDate
+              signedCommits
+              unsignedCommits
+              signedPercentage
+            }
+          }
+        `;
+        const statsResponse = await sendQuery(statsQuery);
+        const stats = statsResponse.data?.repositoryStats;
+
+        if (stats) {
+          document.getElementById('total-commits').textContent = (stats.totalCommits || 0).toLocaleString();
+          document.getElementById('total-commits-row').textContent = (stats.totalCommits || 0).toLocaleString();
+          document.getElementById('total-files').textContent = (stats.totalFiles || 0).toLocaleString();
+          document.getElementById('total-files-row').textContent = (stats.totalFiles || 0).toLocaleString();
+          document.getElementById('total-loc').textContent = (stats.totalLinesOfCode || 0).toLocaleString();
+          document.getElementById('total-contributors').textContent = (stats.totalContributors || 0).toLocaleString();
+          document.getElementById('total-contributors-row').textContent = (stats.totalContributors || 0).toLocaleString();
+          document.getElementById('signed-commits').textContent = (stats.signedCommits || 0).toLocaleString();
+          document.getElementById('signed-percentage').textContent = (stats.signedPercentage || 0).toFixed(1) + '%';
+        }
+
+        // Fetch commits over time
+        const commitsQuery = `
+          query {
+            repositoryCommitsOverTime(timeBucket: "month") {
+              period
+              count
+              date
+            }
+          }
+        `;
+        const commitsResponse = await sendQuery(commitsQuery);
+        const timeBuckets = commitsResponse.data?.repositoryCommitsOverTime || [];
+        
+        if (timeBuckets.length > 0) {
+          renderRepositoryChart(timeBuckets);
+        }
+
+        // Fetch contributor growth over time
+        const growthQuery = `
+          query {
+            repositoryContributorGrowth(timeBucket: "month") {
+              period
+              newContributors
+              cumulativeContributors
+              date
+            }
+          }
+        `;
+        const growthResponse = await sendQuery(growthQuery);
+        const growthBuckets = growthResponse.data?.repositoryContributorGrowth || [];
+        
+        if (growthBuckets.length > 0) {
+          renderContributorGrowthChart(growthBuckets);
+        }
+
+        // Fetch top contributors
+        const contributorsQuery = `
+          query {
+            repositoryTopContributors(limit: 10) {
+              identity {
+                name
+                email
+                source
+              }
+              commitCount
+            }
+          }
+        `;
+        const contributorsResponse = await sendQuery(contributorsQuery);
+        const topContributors = contributorsResponse.data?.repositoryTopContributors || [];
+        updateTopContributorsTable(topContributors);
+
+        // Fetch most active files
+        const filesQuery = `
+          query {
+            repositoryMostActiveFiles(limit: 10) {
+              path
+              commitCount
+              contributorCount
+            }
+          }
+        `;
+        const filesResponse = await sendQuery(filesQuery);
+        const activeFiles = filesResponse.data?.repositoryMostActiveFiles || [];
+        updateMostActiveFilesTable(activeFiles);
+
+        // Fetch repository health metrics
+        const healthQuery = `
+          query {
+            repositoryHealthMetrics {
+              averageCommitsPerContributor
+              averageTimeBetweenCommits
+              mostActivePeriod
+              mostActivePeriodCommits
+            }
+          }
+        `;
+        const healthResponse = await sendQuery(healthQuery);
+        const healthMetrics = healthResponse.data?.repositoryHealthMetrics;
+        if (healthMetrics) {
+          updateHealthMetrics(healthMetrics);
+        }
+
+        // Fetch PGP signature statistics
+        const pgpStatsQuery = `
+          query {
+            pgpSignatureStats {
+              uniqueKeys
+            }
+          }
+        `;
+        const pgpStatsResponse = await sendQuery(pgpStatsQuery);
+        const pgpStats = pgpStatsResponse.data?.pgpSignatureStats;
+        if (pgpStats) {
+          document.getElementById('unique-pgp-keys').textContent = (pgpStats.uniqueKeys || 0).toLocaleString();
+        }
+
+        // Fetch top signers
+        const signersQuery = `
+          query {
+            repositoryTopSigners(limit: 10) {
+              identity {
+                name
+                email
+                source
+              }
+              signedCommitCount
+            }
+          }
+        `;
+        const signersResponse = await sendQuery(signersQuery);
+        const topSigners = signersResponse.data?.repositoryTopSigners || [];
+        updateTopSignersTable(topSigners);
+
+        // Fetch signature adoption trend
+        const adoptionQuery = `
+          query {
+            repositorySignatureAdoptionTrend(timeBucket: "month") {
+              period
+              totalCommits
+              signedCommits
+              signedPercentage
+              date
+            }
+          }
+        `;
+        const adoptionResponse = await sendQuery(adoptionQuery);
+        const adoptionBuckets = adoptionResponse.data?.repositorySignatureAdoptionTrend || [];
+        if (adoptionBuckets.length > 0) {
+          renderSignatureAdoptionChart(adoptionBuckets);
+        }
+      } catch (error) {
+        console.error('Error fetching repository stats:', error);
+        document.getElementById('total-commits').textContent = 'Error';
+        document.getElementById('total-files').textContent = 'Error';
+        document.getElementById('total-contributors').textContent = 'Error';
+      }
+    }
+
+    // Function to render repository commits chart
+    function renderRepositoryChart(timeBuckets) {
+      const chartElement = document.getElementById('repositoryCommitsChart');
+      if (!chartElement) return;
+
+      const labels = timeBuckets.map(bucket => {
+        const date = new Date(bucket.date);
+        return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+      });
+      
+      const commitsData = timeBuckets.map(bucket => bucket.count);
+
+      // Destroy existing chart if it exists
+      if (window.repositoryCommitsChartInstance) {
+        window.repositoryCommitsChartInstance.destroy();
+      }
+
+      const ctx = chartElement.getContext('2d');
+      window.repositoryCommitsChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Commits Per Month',
+            data: commitsData,
+            borderColor: 'rgba(247, 147, 26, 1)',
+            backgroundColor: 'rgba(247, 147, 26, 0.2)',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Date',
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              ticks: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              grid: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-border-color').trim()
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Commits',
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              ticks: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              grid: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-border-color').trim()
+              },
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            legend: {
+              labels: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Function to render contributor growth chart
+    function renderContributorGrowthChart(growthBuckets) {
+      const chartElement = document.getElementById('contributorGrowthChart');
+      if (!chartElement) return;
+
+      // Destroy existing chart if it exists
+      if (window.contributorGrowthChartInstance) {
+        window.contributorGrowthChartInstance.destroy();
+      }
+
+      const labels = growthBuckets.map(bucket => {
+        const date = new Date(bucket.date);
+        return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+      });
+      
+      const newContributorsData = growthBuckets.map(bucket => bucket.newContributors);
+      const cumulativeData = growthBuckets.map(bucket => bucket.cumulativeContributors);
+
+      const ctx = chartElement.getContext('2d');
+      window.contributorGrowthChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'New Contributors',
+            data: newContributorsData,
+            borderColor: 'rgba(247, 147, 26, 1)',
+            backgroundColor: 'rgba(247, 147, 26, 0.2)',
+            fill: true,
+            tension: 0.3,
+            yAxisID: 'y'
+          }, {
+            label: 'Cumulative Contributors',
+            data: cumulativeData,
+            borderColor: 'rgba(0, 123, 255, 1)',
+            backgroundColor: 'rgba(0, 123, 255, 0.2)',
+            fill: false,
+            tension: 0.3,
+            yAxisID: 'y1'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false,
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Date',
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              ticks: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              grid: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-border-color').trim()
+              }
+            },
+            y: {
+              type: 'linear',
+              display: true,
+              position: 'left',
+              title: {
+                display: true,
+                text: 'New Contributors',
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              ticks: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              grid: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-border-color').trim()
+              },
+              beginAtZero: true
+            },
+            y1: {
+              type: 'linear',
+              display: true,
+              position: 'right',
+              title: {
+                display: true,
+                text: 'Cumulative Contributors',
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              ticks: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              grid: {
+                drawOnChartArea: false,
+              },
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            legend: {
+              labels: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Function to update top contributors table
+    function updateTopContributorsTable(contributors) {
+      const tbody = document.querySelector('.contributors-table tbody');
+      if (!tbody) return;
+
+      tbody.innerHTML = '';
+      
+      if (contributors.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="2">No contributors found</td></tr>';
+        return;
+      }
+
+      contributors.forEach(contrib => {
+        const row = document.createElement('tr');
+        const email = contrib.identity?.email || '';
+        const name = contrib.identity?.name || contrib.identity?.email || 'Unknown';
+        
+        // Create link to profile page if email exists
+        let nameCell;
+        if (email) {
+          const profileUrl = `profile.html?email=${encodeURIComponent(email)}`;
+          nameCell = `<td><a href="${profileUrl}">${name}</a></td>`;
+        } else {
+          nameCell = `<td>${name}</td>`;
+        }
+        
+        row.innerHTML = `
+          ${nameCell}
+          <td>${(contrib.commitCount || 0).toLocaleString()}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    // Function to update most active files table
+    function updateMostActiveFilesTable(files) {
+      const tbody = document.querySelector('.files-table tbody');
+      if (!tbody) return;
+
+      tbody.innerHTML = '';
+      
+      if (files.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3">No files found</td></tr>';
+        return;
+      }
+
+      files.forEach(file => {
+        const row = document.createElement('tr');
+        const filePath = file.path || '';
+        const fileUrl = filePath ? `file.html?file=${encodeURIComponent(filePath)}` : '#';
+        row.innerHTML = `
+          <td><a href="${fileUrl}">${file.path}</a></td>
+          <td>${(file.commitCount || 0).toLocaleString()}</td>
+          <td>${(file.contributorCount || 0).toLocaleString()}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    // Function to update health metrics
+    function updateHealthMetrics(metrics) {
+      // Average commits per contributor
+      const avgCommits = metrics.averageCommitsPerContributor || 0;
+      document.getElementById('avg-commits-per-contributor').textContent = avgCommits.toFixed(2);
+
+      // Average time between commits (convert seconds to human-readable format)
+      const avgTimeSeconds = metrics.averageTimeBetweenCommits || 0;
+      let timeStr = '';
+      if (avgTimeSeconds < 60) {
+        timeStr = `${Math.round(avgTimeSeconds)} seconds`;
+      } else if (avgTimeSeconds < 3600) {
+        timeStr = `${Math.round(avgTimeSeconds / 60)} minutes`;
+      } else if (avgTimeSeconds < 86400) {
+        timeStr = `${Math.round(avgTimeSeconds / 3600)} hours`;
+      } else if (avgTimeSeconds < 2592000) {
+        timeStr = `${Math.round(avgTimeSeconds / 86400)} days`;
+      } else {
+        timeStr = `${Math.round(avgTimeSeconds / 2592000)} months`;
+      }
+      document.getElementById('avg-time-between-commits').textContent = timeStr;
+
+      // Most active period
+      const mostActivePeriod = metrics.mostActivePeriod || 'N/A';
+      const mostActiveCommits = metrics.mostActivePeriodCommits || 0;
+      if (mostActivePeriod !== 'N/A' && mostActiveCommits > 0) {
+        document.getElementById('most-active-period').textContent = 
+          `${mostActivePeriod} (${mostActiveCommits.toLocaleString()} commits)`;
+      } else {
+        document.getElementById('most-active-period').textContent = 'N/A';
+      }
+    }
+
+    // Function to update health metrics
+    function updateHealthMetrics(metrics) {
+      // Average commits per contributor
+      const avgCommits = metrics.averageCommitsPerContributor || 0;
+      document.getElementById('avg-commits-per-contributor').textContent = avgCommits.toFixed(2);
+
+      // Average time between commits (convert seconds to human-readable format)
+      const avgTimeSeconds = metrics.averageTimeBetweenCommits || 0;
+      let timeStr = '';
+      if (avgTimeSeconds < 60) {
+        timeStr = `${Math.round(avgTimeSeconds)} seconds`;
+      } else if (avgTimeSeconds < 3600) {
+        timeStr = `${Math.round(avgTimeSeconds / 60)} minutes`;
+      } else if (avgTimeSeconds < 86400) {
+        timeStr = `${Math.round(avgTimeSeconds / 3600)} hours`;
+      } else if (avgTimeSeconds < 2592000) {
+        timeStr = `${Math.round(avgTimeSeconds / 86400)} days`;
+      } else {
+        timeStr = `${Math.round(avgTimeSeconds / 2592000)} months`;
+      }
+      document.getElementById('avg-time-between-commits').textContent = timeStr;
+
+      // Most active period
+      const mostActivePeriod = metrics.mostActivePeriod || 'N/A';
+      const mostActiveCommits = metrics.mostActivePeriodCommits || 0;
+      if (mostActivePeriod !== 'N/A' && mostActiveCommits > 0) {
+        document.getElementById('most-active-period').textContent = 
+          `${mostActivePeriod} (${mostActiveCommits.toLocaleString()} commits)`;
+      } else {
+        document.getElementById('most-active-period').textContent = 'N/A';
+      }
+    }
+
+    // Function to update top signers table
+    function updateTopSignersTable(signers) {
+      const tbody = document.querySelector('.signers-table tbody');
+      if (!tbody) return;
+
+      tbody.innerHTML = '';
+      
+      if (signers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="2">No signers found</td></tr>';
+        return;
+      }
+
+      signers.forEach(signer => {
+        const row = document.createElement('tr');
+        const email = signer.identity?.email || '';
+        const name = signer.identity?.name || signer.identity?.email || 'Unknown';
+        
+        // Create link to profile page if email exists
+        let nameCell;
+        if (email) {
+          const profileUrl = `profile.html?email=${encodeURIComponent(email)}`;
+          nameCell = `<td><a href="${profileUrl}">${name}</a></td>`;
+        } else {
+          nameCell = `<td>${name}</td>`;
+        }
+        
+        row.innerHTML = `
+          ${nameCell}
+          <td>${(signer.signedCommitCount || 0).toLocaleString()}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    // Function to render signature adoption chart
+    function renderSignatureAdoptionChart(adoptionBuckets) {
+      const chartElement = document.getElementById('signatureAdoptionChart');
+      if (!chartElement) return;
+
+      // Destroy existing chart if it exists
+      if (window.signatureAdoptionChartInstance) {
+        window.signatureAdoptionChartInstance.destroy();
+      }
+
+      const labels = adoptionBuckets.map(bucket => {
+        const date = new Date(bucket.date);
+        return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+      });
+      
+      const signedPercentageData = adoptionBuckets.map(bucket => bucket.signedPercentage);
+      const signedCommitsData = adoptionBuckets.map(bucket => bucket.signedCommits);
+      const totalCommitsData = adoptionBuckets.map(bucket => bucket.totalCommits);
+
+      const ctx = chartElement.getContext('2d');
+      window.signatureAdoptionChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Signature Adoption %',
+            data: signedPercentageData,
+            borderColor: 'rgba(247, 147, 26, 1)',
+            backgroundColor: 'rgba(247, 147, 26, 0.2)',
+            fill: true,
+            tension: 0.3,
+            yAxisID: 'y'
+          }, {
+            label: 'Signed Commits',
+            data: signedCommitsData,
+            borderColor: 'rgba(0, 123, 255, 1)',
+            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+            fill: false,
+            tension: 0.3,
+            yAxisID: 'y1'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false,
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Date',
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              ticks: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              grid: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-border-color').trim()
+              }
+            },
+            y: {
+              type: 'linear',
+              display: true,
+              position: 'left',
+              title: {
+                display: true,
+                text: 'Signature Adoption %',
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              ticks: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              grid: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-border-color').trim()
+              },
+              beginAtZero: true,
+              max: 100
+            },
+            y1: {
+              type: 'linear',
+              display: true,
+              position: 'right',
+              title: {
+                display: true,
+                text: 'Signed Commits',
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              ticks: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              },
+              grid: {
+                drawOnChartArea: false,
+              },
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            legend: {
+              labels: {
+                color: getComputedStyle(document.body).getPropertyValue('--bs-body-color').trim()
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Fetch repository stats when page loads
+    window.onload = function() {
+      fetchRepositoryStats();
+    };
   </script>
 </body>
 </html>
