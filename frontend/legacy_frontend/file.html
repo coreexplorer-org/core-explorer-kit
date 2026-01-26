@@ -616,6 +616,8 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
     // Store all file paths
     let allFilePaths = [];
     let selectedIndex = -1;
+    let pathsLoaded = false;
+    let pathsLoading = false;
     function toggleTheme() {
       document.body.classList.toggle('light-mode');
       elements.navbar.classList.toggle('navbar-dark');
@@ -717,12 +719,51 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
 
     // Function to display dropdown results
     function displayDropdownResults(results) {
-      if (results.length === 0) {
-        elements.dropdownResults.style.display = 'none';
+      elements.dropdownResults.innerHTML = '';
+      
+      // Show loading state if paths aren't loaded yet
+      if (!pathsLoaded && pathsLoading) {
+        const loadingItem = document.createElement('div');
+        loadingItem.className = 'dropdown-item';
+        loadingItem.textContent = 'Loading file paths...';
+        loadingItem.style.fontStyle = 'italic';
+        loadingItem.style.color = 'var(--bs-body-color)';
+        loadingItem.style.opacity = '0.7';
+        elements.dropdownResults.appendChild(loadingItem);
+        elements.dropdownResults.style.display = 'block';
+        selectedIndex = -1;
         return;
       }
       
-      elements.dropdownResults.innerHTML = '';
+      // Show error message if paths failed to load
+      if (!pathsLoaded && !pathsLoading) {
+        const errorItem = document.createElement('div');
+        errorItem.className = 'dropdown-item';
+        errorItem.textContent = 'File paths not loaded. Please wait or refresh the page.';
+        errorItem.style.fontStyle = 'italic';
+        errorItem.style.color = 'var(--bs-body-color)';
+        errorItem.style.opacity = '0.7';
+        elements.dropdownResults.appendChild(errorItem);
+        elements.dropdownResults.style.display = 'block';
+        selectedIndex = -1;
+        return;
+      }
+      
+      // Show "no results" if search returned nothing
+      if (results.length === 0) {
+        const noResultsItem = document.createElement('div');
+        noResultsItem.className = 'dropdown-item';
+        noResultsItem.textContent = 'No matching files found';
+        noResultsItem.style.fontStyle = 'italic';
+        noResultsItem.style.color = 'var(--bs-body-color)';
+        noResultsItem.style.opacity = '0.7';
+        elements.dropdownResults.appendChild(noResultsItem);
+        elements.dropdownResults.style.display = 'block';
+        selectedIndex = -1;
+        return;
+      }
+      
+      // Display results
       results.forEach((result, index) => {
         const item = document.createElement('div');
         item.className = 'dropdown-item';
@@ -751,6 +792,10 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
 
     // Function to load all file paths
     async function loadAllFilePaths() {
+      if (pathsLoading) {
+        return; // Already loading, don't start another request
+      }
+      pathsLoading = true;
       try {
         const query = `
           query {
@@ -759,10 +804,23 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
         `;
         const response = await sendQuery(query);
         allFilePaths = response.data?.allFilePaths || [];
+        pathsLoaded = true;
         console.log(`Loaded ${allFilePaths.length} file paths`);
       } catch (error) {
         console.error('Error loading file paths:', error);
         allFilePaths = [];
+        pathsLoaded = false;
+        // Retry after a delay if the initial load failed
+        setTimeout(() => {
+          if (!pathsLoaded) {
+            console.log('Retrying file paths load...');
+            pathsLoading = false;
+            loadAllFilePaths();
+          }
+        }, 2000);
+        return;
+      } finally {
+        pathsLoading = false;
       }
     }
 
@@ -983,6 +1041,10 @@ body:not(.light-mode) .btn-primary:hover {background-color: var(--bs-primary); b
     elements.searchBar.addEventListener('input', function(event) {
       const query = event.target.value.trim();
       if (query.length > 0) {
+        // If paths aren't loaded yet, try to load them
+        if (!pathsLoaded && !pathsLoading) {
+          loadAllFilePaths();
+        }
         const results = filterFilePaths(query);
         displayDropdownResults(results);
       } else {
